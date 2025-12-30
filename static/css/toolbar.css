@@ -1,0 +1,24 @@
+#toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: #f0f0f0;
+  border-bottom: 1px solid #ccc;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#toolbar button {
+  padding: 6px 10px;
+  cursor: pointer;
+  border: 1px solid #aaa;
+  background: white;
+  border-radius: 4px;
+}
+#toolbar button:hover {
+  background: #e0e0e0;
+}
+#file-toggle {
+  margin-left: auto;
+  font-weight: bold;
+}
+

@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Édition Markdown live</title>
+
+  <!-- Thème GitHub -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+
+  <!-- Highlight.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Barre d’outils */
+    #toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      background: #f0f0f0;
+      border-bottom: 1px solid #ccc;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    #toolbar button {
+      padding: 6px 10px;
+      cursor: pointer;
+      border: 1px solid #aaa;
+      background: white;
+      border-radius: 4px;
+    }
+
+    #toolbar button:hover {
+      background: #e0e0e0;
+    }
+
+    #file-toggle {
+      margin-left: auto;
+      font-weight: bold;
+    }
+
+    /* Layout principal */
+    #container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* Explorateur */
+    #file-explorer {
+      width: 220px;
+      background: #fafafa;
+      border-right: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    #file-explorer h3 {
+      margin-top: 0;
+    }
+
+    #file-explorer ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    #file-explorer li {
+      margin: 4px 0;
+    }
+
+    #file-explorer a {
+      text-decoration: none;
+      color: #333;
+      cursor: pointer;
+    }
+
+    #file-explorer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Panneau TOC + Backlinks */
+    #toc-panel {
+      width: 240px;
+      background: #fdfdfd;
+      border-right: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      font-size: 13px;
+    }
+
+    #toc-panel h3 {
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+
+    #toc-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0 0 10px 0;
+    }
+
+    #toc-list li {
+      margin: 3px 0;
+      cursor: pointer;
+    }
+
+    #toc-list li span {
+      display: inline-block;
+    }
+
+    .toc-level-1 { margin-left: 0; font-weight: bold; }
+    .toc-level-2 { margin-left: 10px; }
+    .toc-level-3 { margin-left: 20px; }
+    .toc-level-4 { margin-left: 30px; }
+    .toc-level-5 { margin-left: 40px; }
+    .toc-level-6 { margin-left: 50px; }
+
+    #backlinks-panel {
+      margin-top: 12px;
+      border-top: 1px solid #ddd;
+      padding-top: 8px;
+    }
+
+    #backlinks-panel h3 {
+      margin: 0 0 6px 0;
+      font-size: 13px;
+    }
+
+    #backlinks-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    #backlinks-list li {
+      margin: 3px 0;
+    }
+
+    #backlinks-list a {
+      cursor: pointer;
+      color: #0074d9;
+      text-decoration: none;
+    }
+
+    #backlinks-list a:hover {
+      text-decoration: underline;
+    }
+
+    /* Zone de travail */
+    #work-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Onglets */
+    #tabs {
+      display: flex;
+      background: #eaeaea;
+      border-bottom: 1px solid #ccc;
+      min-height: 32px;
+      align-items: center;
+    }
+
+    .tab {
+      padding: 6px 12px;
+      cursor: pointer;
+      border-right: 1px solid #ccc;
+      background: #f7f7f7;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab.active {
+      background: white;
+      font-weight: bold;
+    }
+
+    .close-tab {
+      color: #900;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .close-tab:hover {
+      color: red;
+    }
+
+    /* Éditeur + preview + minimap */
+    #editor-preview {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #editor, #preview {
+      padding: 10px;
+      box-sizing: border-box;
+      overflow: auto;
+    }
+
+    #editor {
+      flex: 1;
+      min-width: 150px;
+      border-right: 1px solid #ccc;
+      transition: width 0.05s;
+    }
+
+    #preview {
+      flex: 1;
+      min-width: 150px;
+      border-right: 1px solid #ccc;
+    }
+
+    #splitter {
+      width: 6px;
+      background: #ddd;
+      cursor: col-resize;
+    }
+
+    /* Wrapper éditeur + numéros de ligne */
+    #editor-wrapper {
+      display: flex;
+      height: 100%;
+      width: 100%;
+    }
+
+    #line-numbers {
+      width: 40px;
+      background: #f3f3f3;
+      color: #666;
+      text-align: right;
+      padding: 10px 5px;
+      font-family: monospace;
+      font-size: 14px;
+      border-right: 1px solid #ccc;
+      user-select: none;
+      display: none; /* désactivé par défaut */
+      overflow: hidden;
+    }
+
+    #line-numbers.active {
+      display: block;
+    }
+
+    #editor textarea {
+      flex: 1;
+      padding-left: 10px;
+    }
+
+    #editor textarea {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      font-family: monospace;
+      font-size: 14px;
+      resize: none;
+      border: none;
+      outline: none;
+    }
+
+    #preview-content {
+      padding: 20px;
+    }
+
+    .markdown-body {
+      box-sizing: border-box;
+      min-width: 200px;
+      max-width: 100%;
+    }
+
+    /* Mini-map */
+    #minimap {
+      width: 120px;
+      border-left: 1px solid #ccc;
+      background: #fafafa;
+      overflow: hidden;
+      font-size: 8px;
+      line-height: 10px;
+      padding: 4px;
+      box-sizing: border-box;
+    }
+
+    #minimap-content {
+      transform: scale(0.25);
+      transform-origin: top left;
+      width: 400%;
+      pointer-events: none;
+      color: #555;
+      font-family: monospace;
+      white-space: pre;
+    }
+
+    /* Barre d’actions */
+    #actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background: #f0f0f0;
+      border-top: 1px solid #ccc;
+      gap: 20px;
+    }
+
+    #actions button {
+      padding: 8px 14px;
+      cursor: pointer;
+      border: 1px solid #aaa;
+      background: white;
+      border-radius: 4px;
+    }
+
+    #actions button:hover {
+      background: #e0e0e0;
+    }
+
+    #filename {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    /* Drag & drop éditeur */
+    #editor.dragover {
+      border: 2px dashed #007bff;
+      background: #eef6ff;
+    }
+
+    /* Panneau médias */
+    #media-panel {
+      position: fixed;
+      top: 50px;
+      right: 50px;
+      width: 370px;
+      height: 520px;
+      background: white;
+      border: 1px solid #aaa;
+      border-radius: 6px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      display: none;
+      flex-direction: column;
+      z-index: 9999;
+    }
+
+    #media-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background: #eee;
+      border-bottom: 1px solid #ccc;
+    }
+
+    #media-header button {
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    #media-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+
+    #media-list h4 {
+      margin: 8px 0 4px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .media-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px;
+      border-bottom: 1px solid #ddd;
+      cursor: pointer;
+    }
+
+    .media-item img {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    .media-item video {
+      width: 80px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    .media-name {
+      flex: 1;
+      font-size: 13px;
+    }
+
+    .media-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .media-actions button {
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
+
+    #media-dropzone {
+      padding: 16px;
+      text-align: center;
+      border-top: 1px solid #ccc;
+      background: #fafafa;
+      cursor: pointer;
+      font-size: 14px;
+      color: #555;
+    }
+
+    #media-dropzone.dragover {
+      background: #e0f0ff;
+      border-top: 2px dashed #007bff;
+      color: #004a99;
+    }
+
+    /* Ligne active dans l’éditeur */
+    #editor textarea {
+      caret-color: #007bff;
+    }
+    
+    .active-line-highlight {
+      background: #e8f1ff !important;
+    }
+
+    #autocomplete-menu {
+      position: absolute;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      display: none;
+      z-index: 99999;
+      font-size: 14px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .autocomplete-item {
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    
+    .autocomplete-item:hover,
+    .autocomplete-item.active {
+      background: #e8f1ff;
+    }
+
+    #command-palette {
+      position: fixed;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 400px;
+      background: white;
+      border: 1px solid #aaa;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      display: none;
+      z-index: 999999;
+    }
+    
+    #command-input {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-bottom: 1px solid #ccc;
+      font-size: 16px;
+      outline: none;
+    }
+    
+    #command-results {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .command-item {
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+    
+    .command-item:hover,
+    .command-item.active {
+      background: #e8f1ff;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- Barre d’outils -->
+  <div id="toolbar">
+    <button onclick="wrap('**','**')"><b>Gras</b></button>
+    <button onclick="wrap('*','*')"><i>Italique</i></button>
+    <button onclick="wrap('~~','~~')"><s>Barré</s></button>
+    <button onclick="wrap('<u>','</u>')"><u>Souligner</u></button>
+    <button onclick="wrap('`','`')"><code>Code</code></button>
+    <button onclick="insert('# ')">H1</button>
+    <button onclick="insert('## ')">H2</button>
+    <button onclick="insert('### ')">H3</button>
+    <button onclick="insert('- ')">Liste</button>
+    <button onclick="insert('1. ')">Liste num.</button>
+    <button onclick="wrap('> ','')">Citation</button>
+    <button onclick="wrap('[texte](', ')')">Lien</button>
+    <button onclick="wrap('![alt](', ')')">Image</button>
+    <button onclick="insertTable()">Tableau</button>
+    <button onclick="toggleLineNumbers()"># Lignes</button>
+    <button onclick="openMediaPanel()">📷 Médias</button>
+
+    <button id="file-toggle" onclick="toggleExplorer()">📁</button>
+  </div>
+
+  <!-- Layout principal -->
+  <div id="container">
+
+    <!-- Explorateur -->
+    <div id="file-explorer">
+      <h3>Fichiers</h3>
+      <ul id="file-list"></ul>
+    </div>
+
+    <!-- TOC + Backlinks -->
+    <div id="toc-panel">
+      <h3>Sommaire</h3>
+      <ul id="toc-list"></ul>
+
+      <div id="backlinks-panel">
+        <h3>Backlinks</h3>
+        <ul id="backlinks-list"></ul>
+      </div>
+    </div>
+
+    <!-- Zone de travail -->
+    <div id="work-area">
+
+      <!-- Onglets -->
+      <div id="tabs"></div>
+
+      <!-- Éditeur + preview + minimap -->
+      <div id="editor-preview">
+        <div id="editor">
+          <div id="editor-wrapper">
+            <div id="line-numbers"></div>
+            <textarea id="md-input">{{ initial_md }}</textarea>
+          </div>
+        </div>
+
+        <div id="splitter"></div>
+
+        <div id="preview">
+          <div id="preview-content" class="markdown-body">
+            {{ initial_html | safe }}
+          </div>
+        </div>
+
+        <div id="minimap">
+          <div id="minimap-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barre d’actions -->
+  <div id="actions">
+    <input id="filename" type="text" value="{{ initial_filename }}" placeholder="Nom du fichier (ex: note.md)">
+    <button onclick="location.reload()">🔄 Recharger</button>
+    <button onclick="save()">💾 Sauvegarder</button>
+  </div>
+
+  <!-- Panneau médias -->
+  <div id="media-panel">
+    <div id="media-header">
+      <span>Médias</span>
+      <button onclick="closeMediaPanel()">✖</button>
+    </div>
+    <div id="media-list"></div>
+    <div id="media-dropzone">
+      Déposez des fichiers ici pour les importer
+    </div>
+  </div>
+
+  <script>
+    const textarea = document.getElementById("md-input");
+    const preview = document.getElementById("preview-content");
+    const explorer = document.getElementById("file-explorer");
+    const splitter = document.getElementById("splitter");
+    const editor = document.getElementById("editor");
+    const tabs = document.getElementById("tabs");
+    const filenameInput = document.getElementById("filename");
+    const fileList = document.getElementById("file-list");
+    const mediaPanel = document.getElementById("media-panel");
+    const mediaList = document.getElementById("media-list");
+    const mediaDropzone = document.getElementById("media-dropzone");
+    const tocList = document.getElementById("toc-list");
+    const backlinksList = document.getElementById("backlinks-list");
+    const minimapContent = document.getElementById("minimap-content");
+
+    let timeoutId = null;
+    let dragging = false;
+    let openFiles = {};
+    let lastSavedContent = "";
+    let lineNumbersEnabled = false;
+
+    /* --- Preview live --- */
+    async function updatePreview() {
+      const text = textarea.value;
+      const res = await fetch("/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: text }),
+      });
+      const data = await res.json();
+      preview.innerHTML = data.html;
+      hljs.highlightAll();
+      updateLineNumbers();
+      updateTOC();
+      updateMinimap();
+    }
+
+    textarea.addEventListener("input", () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(updatePreview, 200);
+    });
+
+    /* --- Outils mise en forme --- */
+    function wrap(before, after) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const selected = textarea.value.substring(start, end);
+      textarea.setRangeText(before + selected + after, start, end, "end");
+      updatePreview();
+    }
+
+    function insert(text) {
+      const pos = textarea.selectionStart;
+      textarea.setRangeText(text, pos, pos, "end");
+      updatePreview();
+    }
+
+    function insertTable() {
+      const table =
+`| Colonne 1 | Colonne 2 |
+|-----------|-----------|
+| Valeur 1  | Valeur 2  |
+
+`;
+      const pos = textarea.selectionStart;
+      textarea.setRangeText(table, pos, pos, "end");
+      updatePreview();
+    }
+
+    /* --- Numéros de ligne --- */
+    function toggleLineNumbers() {
+      lineNumbersEnabled = !lineNumbersEnabled;
+      const ln = document.getElementById("line-numbers");
+      if (lineNumbersEnabled) {
+        ln.classList.add("active");
+        updateLineNumbers();
+      } else {
+        ln.classList.remove("active");
+      }
+    }
+
+    function updateLineNumbers() {
+      if (!lineNumbersEnabled) return;
+      const ln = document.getElementById("line-numbers");
+      const lines = textarea.value.split("\n").length;
+      let html = "";
+      for (let i = 1; i <= lines; i++) {
+        html += i + "<br>";
+      }
+      ln.innerHTML = html;
+      ln.scrollTop = textarea.scrollTop;
+    }
+
+    /* --- Surlignage de la ligne active --- */
+    function highlightActiveLine() {
+      const text = textarea.value.substr(0, textarea.selectionStart);
+      const lineIndex = text.split("\n").length - 1;
+    
+      const lines = textarea.value.split("\n");
+    
+      // On reconstruit le contenu avec une classe sur la ligne active
+      let html = "";
+      for (let i = 0; i < lines.length; i++) {
+        const safe = lines[i]
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        if (i === lineIndex) {
+          html += `<div class="active-line-highlight">${safe}</div>`;
+        } else {
+          html += `<div>${safe}</div>`;
+        }
+      }
+    
+      // On affiche dans la mini-map (optionnel)
+      minimapContent.innerHTML = html;
+    }
+    
+    textarea.addEventListener("keyup", highlightActiveLine);
+    textarea.addEventListener("click", highlightActiveLine);
+    textarea.addEventListener("input", highlightActiveLine);
+    
+    textarea.addEventListener("scroll", () => {
+      const ln = document.getElementById("line-numbers");
+      ln.scrollTop = textarea.scrollTop;
+    });
+
+    /* --- Mini-map --- */
+    function updateMinimap() {
+      const text = textarea.value;
+      const lines = text.split("\n").slice(0, 400);
+      const html = lines
+        .map(l => l.replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+        .join("\n");
+      minimapContent.innerHTML = html;
+    }
+
+    /* --- TOC --- */
+    function updateTOC() {
+      tocList.innerHTML = "";
+      const container = document.createElement("div");
+      container.innerHTML = preview.innerHTML;
+
+      const headings = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      headings.forEach((h, index) => {
+        const level = parseInt(h.tagName.substring(1), 10);
+        let text = h.textContent.trim();
+        if (!text) return;
+
+        const id = h.id || "toc-" + index;
+        // On force un id sur le vrai heading
+        const realHeadings = preview.querySelectorAll(h.tagName);
+        const realHeading = realHeadings[index];
+        if (realHeading && !realHeading.id) {
+          realHeading.id = id;
+        }
+
+        const li = document.createElement("li");
+        const span = document.createElement("span");
+        span.textContent = text;
+        span.className = "toc-level-" + level;
+        span.onclick = () => {
+          const target = document.getElementById(id);
+          if (target) {
+            const top = target.offsetTop;
+            document.getElementById("preview").scrollTo({ top, behavior: "smooth" });
+          }
+        };
+        li.appendChild(span);
+        tocList.appendChild(li);
+      });
+    }
+
+    /* --- Backlinks --- */
+    async function updateBacklinks() {
+      const filename = filenameInput.value.trim();
+      if (!filename) {
+        backlinksList.innerHTML = "<li>Aucun fichier actif</li>";
+        return;
+      }
+
+      const res = await fetch("/backlinks?file=" + encodeURIComponent(filename));
+      if (!res.ok) {
+        backlinksList.innerHTML = "<li>Erreur backlinks</li>";
+        return;
+      }
+
+      const data = await res.json();
+      backlinksList.innerHTML = "";
+
+      if (!data.files || data.files.length === 0) {
+        backlinksList.innerHTML = "<li>Aucun backlink</li>";
+        return;
+      }
+
+      data.files.forEach(f => {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.textContent = f;
+        a.onclick = (e) => {
+          e.preventDefault();
+          loadFile(f);
+        };
+        li.appendChild(a);
+        backlinksList.appendChild(li);
+      });
+    }
+
+    /* --- Explorateur fichiers --- */
+    async function loadFiles() {
+      const res = await fetch("/listefichiers");
+      const data = await res.json();
+
+      fileList.innerHTML = "";
+      data.files.forEach(f => {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.textContent = f;
+        a.onclick = (e) => {
+          e.preventDefault();
+          loadFile(f);
+        };
+        li.appendChild(a);
+        fileList.appendChild(li);
+      });
+    }
+
+    function toggleExplorer() {
+      const visible = explorer.style.display === "block";
+      explorer.style.display = visible ? "none" : "block";
+      if (!visible) loadFiles();
+    }
+
+    async function loadFile(filename) {
+      const res = await fetch("/read/" + encodeURIComponent(filename));
+      const data = await res.json();
+      openTab(filename, data.content);
+    }
+
+    /* --- Onglets --- */
+    function openTab(filename, content) {
+      if (openFiles[filename] !== undefined) {
+        activateTab(filename);
+        return;
+      }
+
+      openFiles[filename] = content;
+
+      const tab = document.createElement("div");
+      tab.className = "tab";
+      tab.dataset.filename = filename;
+
+      tab.innerHTML = `
+        <span class="tab-name">${filename}</span>
+        <span class="close-tab" onclick="closeTab(event, '${filename}')">✖</span>
+      `;
+
+      tab.onclick = () => activateTab(filename);
+
+      tabs.appendChild(tab);
+      activateTab(filename);
+    }
+
+    function activateTab(filename) {
+      [...tabs.children].forEach(t => {
+        t.classList.toggle("active", t.dataset.filename === filename);
+      });
+
+      textarea.value = openFiles[filename];
+      filenameInput.value = filename;
+      lastSavedContent = openFiles[filename] || "";
+      updatePreview();
+      updateBacklinks();
+    }
+
+    function closeTab(event, filename) {
+      event.stopPropagation();
+
+      delete openFiles[filename];
+
+      const tab = [...tabs.children].find(t => t.dataset.filename === filename);
+      if (tab) tab.remove();
+
+      const remaining = Object.keys(openFiles);
+      if (remaining.length > 0) {
+        activateTab(remaining[0]);
+      } else {
+        textarea.value = "";
+        preview.innerHTML = "";
+        filenameInput.value = "";
+        lastSavedContent = "";
+        updateLineNumbers();
+        tocList.innerHTML = "";
+        backlinksList.innerHTML = "<li>Aucun fichier actif</li>";
+        updateMinimap();
+      }
+    }
+
+    /* --- Splitter draggable --- */
+    splitter.addEventListener("mousedown", () => dragging = true);
+    document.addEventListener("mouseup", () => dragging = false);
+
+    document.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+
+      const explorerWidth = (explorer.style.display === "block") ? explorer.offsetWidth : 0;
+      const tocWidth = document.getElementById("toc-panel").offsetWidth;
+      const offsetLeft = explorerWidth + tocWidth;
+      const newEditorWidth = e.clientX - offsetLeft;
+
+      if (newEditorWidth < 150) return;
+
+      editor.style.flex = "none";
+      editor.style.width = newEditorWidth + "px";
+    });
+
+    /* --- Drag & drop éditeur (md + médias) --- */
+    editor.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      editor.classList.add("dragover");
+    });
+
+    editor.addEventListener("dragleave", () => {
+      editor.classList.remove("dragover");
+    });
+
+    editor.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      editor.classList.remove("dragover");
+
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      // Médias
+      if (["png","jpg","jpeg","gif","webp","mp4","webm","ogg","pdf"].includes(ext)) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch("/savemedia", {
+          method: "POST",
+          body: formData
+        });
+
+        if (res.ok) {
+          insertMedia(file.name);
+          loadMediaList();
+        } else {
+          alert("Erreur lors de l’upload du média");
+        }
+        return;
+      }
+
+      // Fichiers Markdown
+      if (file.name.endsWith(".md")) {
+        const text = await file.text();
+        openTab(file.name, text);
+      }
+    });
+
+    /* --- Panneau médias --- */
+    function openMediaPanel() {
+      mediaPanel.style.display = "flex";
+      loadMediaList();
+    }
+
+    function closeMediaPanel() {
+      mediaPanel.style.display = "none";
+    }
+
+    async function loadMediaList() {
+      const res = await fetch("/listemedias");
+      const data = await res.json();
+
+      mediaList.innerHTML = "";
+
+      // Si l’API renvoie des dossiers : { folders: {images:[...],...} }
+      if (data.folders) {
+        Object.keys(data.folders).forEach(folder => {
+          const title = document.createElement("h4");
+          title.textContent = folder;
+          mediaList.appendChild(title);
+
+          data.folders[folder].forEach(media => {
+            renderMediaItem(media, folder);
+          });
+        });
+      }
+
+      // Si l’API renvoie une liste simple : { medias: [...] }
+      if (data.medias) {
+        data.medias.forEach(media => {
+          renderMediaItem(media, null);
+        });
+      }
+    }
+
+    function renderMediaItem(media, folder) {
+      const ext = media.split('.').pop().toLowerCase();
+      const item = document.createElement("div");
+      item.className = "media-item";
+
+      const path = folder ? folder + '/' + media : media;
+      let previewEl = "";
+
+      if (["png","jpg","jpeg","gif","webp"].includes(ext)) {
+        previewEl = `<img src="/medias/${path}">`;
+      } else if (["mp4","webm","ogg"].includes(ext)) {
+        previewEl = `<video src="/medias/${path}" muted></video>`;
+      } else {
+        previewEl = `<span>📄</span>`;
+      }
+
+      item.innerHTML = `
+        ${previewEl}
+        <span class="media-name">${path}</span>
+        <div class="media-actions">
+          <button class="rename-btn">✏️</button>
+          <button class="delete-btn">🗑️</button>
+        </div>
+      `;
+
+      // Insertion dans le markdown au clic sur l'item (hors boutons)
+      item.addEventListener("click", (e) => {
+        if (e.target.closest(".media-actions")) return;
+        insertMedia(path);
+      });
+
+      // Renommage
+      item.querySelector(".rename-btn").onclick = async (e) => {
+        e.stopPropagation();
+        const newName = prompt("Nouveau nom :", media);
+        if (!newName) return;
+
+        const res = await fetch("/renamemedia", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ old: path, "new": (folder ? folder + '/' : '') + newName })
+        });
+
+        if (res.ok) {
+          loadMediaList();
+        } else {
+          alert("Erreur lors du renommage");
+        }
+      };
+
+      // Suppression
+      item.querySelector(".delete-btn").onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm("Supprimer ce média ?")) return;
+
+        const res = await fetch("/deletemedia", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ file: path })
+        });
+
+        if (res.ok) {
+          loadMediaList();
+        } else {
+          alert("Erreur lors de la suppression");
+        }
+      };
+
+      mediaList.appendChild(item);
+    }
+
+    function insertMedia(path) {
+      const filename = path.split('/').pop();
+      const ext = filename.split('.').pop().toLowerCase();
+      let insertText = "";
+
+      if (["png","jpg","jpeg","gif","webp"].includes(ext)) {
+        insertText = `![${filename}](/medias/${path})`;
+      } else if (["mp4","webm","ogg"].includes(ext)) {
+        insertText = `<video controls src="/medias/${path}"></video>`;
+      } else {
+        insertText = `[${filename}](/medias/${path})`;
+      }
+
+      const pos = textarea.selectionStart;
+      textarea.setRangeText(insertText, pos, pos, "end");
+      updatePreview();
+    }
+
+    /* Drag & drop dans le panneau médias */
+    mediaDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      mediaDropzone.classList.add("dragover");
+    });
+
+    mediaDropzone.addEventListener("dragleave", () => {
+      mediaDropzone.classList.remove("dragover");
+    });
+
+    mediaDropzone.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      mediaDropzone.classList.remove("dragover");
+
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/savemedia", {
+        method: "POST",
+        body: formData
+      });
+
+      if (res.ok) {
+        loadMediaList();
+        insertMedia(file.name);
+      } else {
+        alert("Erreur lors de l’upload du média");
+      }
+    });
+
+    /* --- Sauvegarde manuelle --- */
+    async function save() {
+      const text = textarea.value;
+      let filename = filenameInput.value.trim();
+
+      if (!filename) {
+        alert("Veuillez entrer un nom de fichier !");
+        return;
+      }
+
+      const res = await fetch("/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: text, filename }),
+      });
+
+      if (res.ok) {
+        lastSavedContent = text;
+        openFiles[filename] = text;
+        alert("Document sauvegardé !");
+        updateBacklinks();
+      } else {
+        alert("Erreur lors de la sauvegarde");
+      }
+    }
+
+    /* --- Auto-save intelligent --- */
+    function generateDraftName() {
+      const now = new Date();
+      const pad = n => n.toString().padStart(2, "0");
+      return `brouillon-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.md`;
+    }
+
+    async function autoSave() {
+      const text = textarea.value;
+      if (text === lastSavedContent) return;
+
+      let filename = filenameInput.value.trim();
+      if (!filename) {
+        filename = generateDraftName();
+        filenameInput.value = filename;
+      }
+
+      const res = await fetch("/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: text, filename }),
+      });
+
+      if (res.ok) {
+        lastSavedContent = text;
+        openFiles[filename] = text;
+        updateBacklinks();
+      }
+    }
+
+    setInterval(autoSave, 8000);
+
+    /* --- Init --- */
+    (function init() {
+      if (filenameInput.value) {
+        openTab(filenameInput.value, textarea.value);
+      } else {
+        updatePreview();
+        updateBacklinks();
+      }
+    })();
+
+    /* --- Raccourcis clavier --- */
+    document.addEventListener("keydown", function(e) {
+      // Ctrl + S → sauvegarde
+      if (e.ctrlKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        save();
+        return;
+      }
+    
+      // Ctrl + B → gras
+      if (e.ctrlKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        wrap("**", "**");
+        return;
+      }
+    
+      // Ctrl + I → italique
+      if (e.ctrlKey && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        wrap("*", "*");
+        return;
+      }
+    
+      // Ctrl + U → souligner
+      if (e.ctrlKey && e.key.toLowerCase() === "u") {
+        e.preventDefault();
+        wrap("<u>", "</u>");
+        return;
+      }
+    
+      // Ctrl + L → liste
+      if (e.ctrlKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        insert("- ");
+        return;
+      }
+    
+      // Ctrl + H → titre H1
+      if (e.ctrlKey && e.key.toLowerCase() === "h") {
+        e.preventDefault();
+        insert("# ");
+        return;
+      }
+    
+      // Ctrl + M → panneau médias
+      if (e.ctrlKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        openMediaPanel();
+        return;
+      }
+    
+      // Ctrl + / → citation
+      if (e.ctrlKey && e.key === "/") {
+        e.preventDefault();
+        wrap("> ", "");
+        return;
+      }
+    });
+
+    /* --- AUTO-COMPLETION MARKDOWN --- */
+    
+    const acMenu = document.getElementById("autocomplete-menu");
+    let acItems = [];
+    let acIndex = -1;
+    
+    function showAutocomplete(items, x, y) {
+      acMenu.innerHTML = "";
+      acItems = items;
+      acIndex = -1;
+    
+      items.forEach((item, i) => {
+        const div = document.createElement("div");
+        div.className = "autocomplete-item";
+        div.textContent = item.label;
+        div.onclick = () => applyAutocomplete(i);
+        acMenu.appendChild(div);
+      });
+    
+      acMenu.style.left = x + "px";
+      acMenu.style.top = y + "px";
+      acMenu.style.display = "block";
+    }
+    
+    function hideAutocomplete() {
+      acMenu.style.display = "none";
+      acItems = [];
+      acIndex = -1;
+    }
+    
+    function applyAutocomplete(i) {
+      const item = acItems[i];
+      if (!item) return;
+    
+      const pos = textarea.selectionStart;
+      const before = textarea.value.substring(0, pos - item.trigger.length);
+      const after = textarea.value.substring(pos);
+    
+      textarea.value = before + item.insert + after;
+      textarea.selectionStart = textarea.selectionEnd = before.length + item.insert.length;
+    
+      hideAutocomplete();
+      updatePreview();
+    }
+    
+    textarea.addEventListener("keyup", async (e) => {
+      const pos = textarea.selectionStart;
+      const text = textarea.value.substring(0, pos);
+    
+      // Position du curseur
+      const rect = textarea.getBoundingClientRect();
+      const x = rect.left + 20;
+      const y = rect.top + textarea.scrollTop + 40;
+    
+      // Déclencheurs
+      if (text.endsWith("![")) {
+        // Images
+        const res = await fetch("/listemedias");
+        const data = await res.json();
+        const imgs = (data.medias || []).filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f));
+        showAutocomplete(imgs.map(f => ({
+          label: f,
+          insert: `![${f}](/medias/${f})`,
+          trigger: "!["
+        })), x, y);
+        return;
+      }
+    
+      if (text.endsWith("[")) {
+        // Liens vers fichiers
+        const res = await fetch("/listefichiers");
+        const data = await res.json();
+        showAutocomplete(data.files.map(f => ({
+          label: f,
+          insert: `[${f}](${f})`,
+          trigger: "["
+        })), x, y);
+        return;
+      }
+    
+      if (text.endsWith("#")) {
+        // Titres existants
+        const headings = [...preview.querySelectorAll("h1,h2,h3,h4,h5,h6")].map(h => h.textContent.trim());
+        showAutocomplete(headings.map(h => ({
+          label: h,
+          insert: h,
+          trigger: "#"
+        })), x, y);
+        return;
+      }
+    
+      hideAutocomplete();
+    });
+    
+    // Navigation clavier
+    document.addEventListener("keydown", (e) => {
+      if (acItems.length === 0) return;
+    
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        acIndex = (acIndex + 1) % acItems.length;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        acIndex = (acIndex - 1 + acItems.length) % acItems.length;
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        applyAutocomplete(acIndex);
+      } else if (e.key === "Escape") {
+        hideAutocomplete();
+      }
+    
+      [...acMenu.children].forEach((c, i) => {
+        c.classList.toggle("active", i === acIndex);
+      });
+    });
+    /* --- PALETTE DE COMMANDES --- */
+    
+    const palette = document.getElementById("command-palette");
+    const paletteInput = document.getElementById("command-input");
+    const paletteResults = document.getElementById("command-results");
+    
+    let paletteCommands = [
+      { label: "Gras", action: () => wrap("**","**") },
+      { label: "Italique", action: () => wrap("*","*") },
+      { label: "Souligner", action: () => wrap("<u>","</u>") },
+      { label: "Titre H1", action: () => insert("# ") },
+      { label: "Titre H2", action: () => insert("## ") },
+      { label: "Titre H3", action: () => insert("### ") },
+      { label: "Liste", action: () => insert("- ") },
+      { label: "Citation", action: () => wrap("> ","") },
+      { label: "Ouvrir médias", action: () => openMediaPanel() },
+      { label: "Sauvegarder", action: () => save() },
+      { label: "Aller au début", action: () => textarea.selectionStart = textarea.selectionEnd = 0 },
+      { label: "Aller à la fin", action: () => textarea.selectionStart = textarea.selectionEnd = textarea.value.length },
+    ];
+    
+    let paletteIndex = -1;
+    
+    function openPalette() {
+      palette.style.display = "block";
+      paletteInput.value = "";
+      paletteInput.focus();
+      updatePaletteResults("");
+    }
+    
+    function closePalette() {
+      palette.style.display = "none";
+    }
+    
+    function updatePaletteResults(query) {
+      paletteResults.innerHTML = "";
+      const filtered = paletteCommands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));
+    
+      filtered.forEach((cmd, i) => {
+        const div = document.createElement("div");
+        div.className = "command-item";
+        div.textContent = cmd.label;
+        div.onclick = () => {
+          cmd.action();
+          closePalette();
+        };
+        paletteResults.appendChild(div);
+      });
+    
+      paletteIndex = -1;
+    }
+    
+    paletteInput.addEventListener("input", () => {
+      updatePaletteResults(paletteInput.value);
+    });
+    
+    document.addEventListener("keydown", (e) => {
+      // Ctrl+Shift+P
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        openPalette();
+        return;
+      }
+    
+      if (palette.style.display === "block") {
+        if (e.key === "Escape") {
+          closePalette();
+          return;
+        }
+    
+        const items = [...paletteResults.children];
+    
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          paletteIndex = (paletteIndex + 1) % items.length;
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          paletteIndex = (paletteIndex - 1 + items.length) % items.length;
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (items[paletteIndex]) {
+            const cmd = paletteCommands.find(c => c.label === items[paletteIndex].textContent);
+            if (cmd) cmd.action();
+            closePalette();
+          }
+        }
+    
+        items.forEach((el, i) => el.classList.toggle("active", i === paletteIndex));
+      }
+    });
+
+  </script>
+    <div id="autocomplete-menu"></div>
+    <div id="command-palette">
+      <input id="command-input" placeholder="Tapez une commande...">
+      <div id="command-results"></div>
+    </div>
+</body>
+</html>

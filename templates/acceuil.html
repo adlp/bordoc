@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Bienvenue{% endblock %}
+
+{% block content %}
+  {% if name %}
+  <h1>Bienvenue {{ name }}</h1>
+  {% else %}
+  <h3>Attention.... vous n'etes pas logué, certaines fonctions seront limitées</h3>
+  {% endif %}
+
+
+  <table id="commands-table">
+    <thead>
+      <a href="/planningAstreinte">Planning d'Astreinte</a></p>
+      <a href="/standard">Gestion Standard</a></p>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+{% endblock %}
+

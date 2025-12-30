@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title or "Document" }}</title>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
+
+    <!-- CSS global -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body class="{% if draft %}draft{% endif %}">
+
+<div id="layout-root">
+
+    <!-- Bandeau haut -->
+    <div id="top">
+        {% include "fragments/top.html" %}
+    </div>
+
+    <!-- Zone centrale -->
+    <div id="middle">
+
+        <!-- Colonne gauche -->
+        <div id="left-wrapper">
+            <button id="toggle-left" class="toggle-btn toggle-left">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+
+            <div id="left">
+                {% include "fragments/left.html" %}
+            </div>
+
+            <div id="resize-left" class="resize-handle resize-left"></div>
+        </div>
+
+        <!-- Colonne centrale -->
+        <div id="center">
+            {% block central %}{% endblock %}
+        </div>
+
+        <!-- Colonne droite -->
+        <div id="right-wrapper">
+
+            <div id="resize-right" class="resize-handle resize-right"></div>
+            
+            <div id="right">
+                {% include "fragments/right.html" %}
+            </div>
+            
+            <button id="toggle-right" class="toggle-btn toggle-right">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+
+
+        </div>
+
+    </div>
+
+    <!-- Bandeau bas -->
+    <div id="bottom">
+        {% include "fragments/bottom.html" %}
+    </div>
+
+</div>
+
+<script src="/static/script.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+    mermaid.initialize({ startOnLoad: true });
+</script>
+</body>
+</html>
+

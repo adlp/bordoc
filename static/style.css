@@ -1,0 +1,364 @@
+/* ============================================================
+   BASE LAYOUT
+   ============================================================ */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#layout-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    position: relative !important; /* nécessaire pour le filigrane */
+    z-index: 0 !important;
+}
+
+/* ============================================================
+   TOP & BOTTOM BARS
+   ============================================================ */
+
+#top {
+    height: 10%;
+    min-height: 50px;
+}
+
+#bottom {
+    height: 5%;
+    min-height: 30px;
+}
+
+.top-bar,
+.bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: #222;
+    color: #eee;
+}
+
+.bottom-bar {
+    font-size: 13px;
+}
+
+.top-center {
+    text-align: center;
+    flex: 1;
+}
+
+/* ============================================================
+   MIDDLE LAYOUT
+   ============================================================ */
+
+#middle {
+    height: 85%;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ============================================================
+   LEFT COLUMN
+   ============================================================ */
+
+#left-wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    height: 100%;
+    flex: 0 0 auto;
+}
+
+#left {
+    width: 12%;
+    min-width: 120px;
+    max-width: 400px;
+    overflow-y: auto;
+    background: #f5f5f5;
+    border-right: 1px solid #ddd;
+}
+
+.toggle-left {
+    border-right: 1px solid #ccc;
+}
+
+/* ============================================================
+   CENTER COLUMN
+   ============================================================ */
+
+#center {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px 24px;
+
+    /* OPTION A : filigrane visible derrière le markdown */
+    background: transparent !important;
+}
+
+/* Si ton moteur markdown génère un wrapper */
+.markdown-body {
+    background: transparent !important;
+}
+
+/* ============================================================
+   RIGHT COLUMN
+   ============================================================ */
+
+#right-wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    height: 100%;
+    flex: 0 0 auto;
+}
+
+/* Ordre des éléments : handle | contenu | chevron */
+.resize-right { order: 1; }
+#right        { order: 2; }
+.toggle-right { order: 3; }
+
+#right {
+    width: 16%;
+    min-width: 140px;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #fafafa;
+    border-left: 1px solid #ddd;
+}
+
+.toggle-right {
+    border-left: 1px solid #ccc;
+}
+
+/* ============================================================
+   RIGHT CONTENT + FOOTER
+   ============================================================ */
+
+.right-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.right-footer {
+    position: sticky;
+    bottom: 0;
+    background: #f0f0f0;
+    border-top: 1px solid #ccc;
+    padding: 8px;
+    text-align: center;
+    z-index: 10;
+}
+
+.right-footer a {
+    margin: 0 6px;
+    color: #333;
+    text-decoration: none;
+    font-size: 16px;
+}
+
+.right-footer a:hover {
+    color: #000;
+}
+
+/* ============================================================
+   NAVIGATION GAUCHE
+   ============================================================ */
+
+.left-nav {
+    padding: 10px;
+    font-size: 14px;
+}
+
+.left-nav h3 {
+    margin-top: 0;
+}
+
+/* ============================================================
+   TOC & TAGS
+   ============================================================ */
+
+.right-section h3 {
+    margin-top: 0;
+    font-size: 15px;
+}
+
+.tag-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.tag-item {
+    display: inline-block;
+    background: #e0e0e0;
+    border-radius: 12px;
+    padding: 2px 8px;
+    margin: 2px 4px;
+    font-size: 12px;
+}
+
+.toc-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    font-size: 13px;
+}
+
+.toc-item {
+    margin: 2px 0;
+}
+
+.toc-item a {
+    color: #333;
+    text-decoration: none;
+}
+
+.toc-item a:hover {
+    text-decoration: underline;
+}
+
+.toc-item.level-2 { margin-left: 8px; }
+.toc-item.level-3 { margin-left: 16px; }
+.toc-item.level-4 { margin-left: 24px; }
+
+/* ============================================================
+   RESIZE HANDLES
+   ============================================================ */
+
+.resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+}
+
+.resize-handle:hover {
+    background: #ccc;
+}
+
+/* ============================================================
+   TOGGLE BUTTONS
+   ============================================================ */
+
+.toggle-btn {
+    border: none;
+    background: #ddd;
+    color: #333;
+    width: 18px;
+    min-width: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toggle-btn:hover {
+    background: #ccc;
+}
+
+/* ============================================================
+   COLLAPSED COLUMNS
+   ============================================================ */
+
+#left-wrapper.collapsed #left,
+#right-wrapper.collapsed #right {
+    display: none;
+}
+
+#left-wrapper.collapsed,
+#right-wrapper.collapsed {
+    width: auto !important;
+}
+
+/* ============================================================
+   TABLEAUX MARKDOWN ENCADRÉS + ZÉBRAGE + LARGEUR AUTO
+   ============================================================ */
+
+.markdown-body table {
+    width: auto;              /* largeur naturelle */
+    max-width: 100%;          /* pas de débordement */
+    margin: 16px 0;        /* centré: remplacer le 0 par auto */
+    border-collapse: collapse;
+    background: rgba(255,255,255,0.8);
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.markdown-body th,
+.markdown-body td {
+    border: 1px solid #ccc;
+    padding: 8px 10px;
+    text-align: left;
+    white-space: nowrap;      /* évite les colonnes trop larges */
+}
+
+.markdown-body th {
+    background: #eaeaea;
+    font-weight: bold;
+}
+
+/* Zébrage */
+.markdown-body table tr:nth-child(even) {
+    background: #f7f7f7;
+}
+
+/* ============================================================
+   FILIGRANE DRAFT (OPTION A)
+   ============================================================ */
+
+body.draft #layout-root::before {
+    content: "DRAFT";
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    font-size: 12vw;
+    font-weight: bold;
+    color: rgba(150, 150, 150, 0.15);
+    pointer-events: none;
+    z-index: -1 !important; /* derrière tout */
+    user-select: none;
+}
+
+/* ============================================================
+   NOTE POUR PDF
+   ============================================================ */
+/*
+   Pour les PDF, si tu veux que le filigrane soit AU-DESSUS du contenu,
+   remplace simplement la ligne ci-dessus par :
+
+   body.draft #layout-root::before {
+       z-index: 9999 !important;
+   }
+
+   Et laisse #center en background blanc.
+*/
+
+/* ============================================================
+   RESPONSIVE (MOBILE)
+   ============================================================ */
+
+@media (max-width: 900px) {
+    #left-wrapper,
+    #right-wrapper {
+        display: none;
+    }
+
+    #center {
+        width: 100%;
+        padding: 12px;
+    }
+
+    body {
+        overflow: auto;
+    }
+}
+

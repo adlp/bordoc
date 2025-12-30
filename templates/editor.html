@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Éditeur Markdown modulaire</title>
+
+  <!-- Thème GitHub + highlight.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- CSS locaux -->
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/toolbar.css">
+  <link rel="stylesheet" href="/static/css/editor.css">
+  <link rel="stylesheet" href="/static/css/preview.css">
+  <link rel="stylesheet" href="/static/css/toc.css">
+  <link rel="stylesheet" href="/static/css/minimap.css">
+  <link rel="stylesheet" href="/static/css/media.css">
+  <link rel="stylesheet" href="/static/css/emojis.css">
+  <link rel="stylesheet" href="/static/css/palette.css">
+  <link rel="stylesheet" href="/static/css/themes/light.css">
+</head>
+<body>
+
+  <!-- Barre d’outils -->
+  <div id="toolbar">
+    <button data-action="bold"><b>Gras</b></button>
+    <button data-action="italic"><i>Italique</i></button>
+    <button data-action="strike"><s>Barré</s></button>
+    <button data-action="underline"><u>Souligner</u></button>
+    <button data-action="code"><code>Code</code></button>
+    <button data-action="h1">H1</button>
+    <button data-action="h2">H2</button>
+    <button data-action="h3">H3</button>
+    <button data-action="ul">Liste</button>
+    <button data-action="ol">Liste num.</button>
+    <button data-action="quote">Citation</button>
+    <button data-action="link">Lien</button>
+    <button data-action="image">Image</button>
+    <button data-action="table">Tableau</button>
+    <button data-action="toggle-lines"># Lignes</button>
+    <button data-action="media-panel">📷 Médias</button>
+    <button data-action="emoji-panel">😊 Emojis</button>
+    <button data-action="command-palette">⌘ Palette</button>
+
+    <button id="file-toggle" data-action="toggle-explorer">📁</button>
+    <button id="back" data-action="back">🏠️</button>
+  </div>
+
+  <!-- Layout principal -->
+  <div id="container">
+
+    <!-- Explorateur -->
+    <div id="file-explorer">
+      <h3>Fichiers</h3>
+      <ul id="file-list"></ul>
+    </div>
+
+    <!-- TOC + Backlinks -->
+    <div id="toc-panel">
+      <h3>Sommaire</h3>
+      <ul id="toc-list">
+{{ toc | safe }}      </ul>
+      <div id="backlinks-panel">
+        <h3>Backlinks</h3>
+        <ul id="backlinks-list"></ul>
+      </div>
+    </div>
+
+    <!-- Zone de travail -->
+    <div id="work-area">
+
+      <!-- Onglets -->
+      <div id="tabs"></div>
+
+      <!-- Éditeur + preview + minimap -->
+      <div id="editor-preview">
+        <div id="editor">
+          <div id="editor-wrapper">
+            <div id="line-numbers"></div>
+            <textarea id="md-input">{{ initial_md }}</textarea>
+          </div>
+        </div>
+
+        <div id="splitter"></div>
+
+        <div id="preview">
+          <div id="preview-content" class="markdown-body">
+            {{ initial_html }}
+          </div>
+        </div>
+
+        <div id="minimap">
+          <div id="minimap-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barre d’actions -->
+  <div id="actions">
+    <input id="filename" type="text" value="{{ initial_filename }}" placeholder="Nom du fichier (ex: note.md)">
+    <button id="reload-btn">🔄 Recharger</button>
+    <button id="save-btn">💾 Sauvegarder</button>
+  </div>
+
+  <!-- Panneau médias -->
+  <div id="media-panel">
+    <div id="media-header">
+      <span>Médias</span>
+      <button id="media-close">✖</button>
+    </div>
+    <div id="media-list"></div>
+    <div id="media-dropzone">
+      Déposez des fichiers ici pour les importer
+    </div>
+  </div>
+
+  <!-- Palette de commandes -->
+  <div id="command-palette">
+    <input id="command-input" placeholder="Tapez une commande...">
+    <div id="command-results"></div>
+  </div>
+
+  <!-- Panneau emojis -->
+  <div id="emoji-panel">
+    <div id="emoji-header">
+      <input id="emoji-search" placeholder="Rechercher emoji / kaomoji / gif...">
+      <button id="emoji-close">✖</button>
+    </div>
+    <div id="emoji-tabs">
+      <button data-tab="emoji">Emojis</button>
+      <button data-tab="kaomoji">Kaomoji</button>
+      <button data-tab="gif">GIFs</button>
+    </div>
+    <div id="emoji-content">
+      <div id="emoji-list"></div>
+      <div id="kaomoji-list" style="display:none;"></div>
+      <div id="gif-list" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Autocomplete -->
+  <div id="autocomplete-menu"></div>
+
+  <!-- JS Core -->
+  <script type="module" src="/static/js/core/main.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ startOnLoad: true });
+  </script>
+</body>
+</html>

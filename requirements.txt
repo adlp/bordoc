@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+# Dépendances de production - Hapimie
+# Installer avec: pip install -r requirements.txt
+
+#### AMI / Asterisk
+####panoramisk>=1.4
+
+# Framework web
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Authentification
+authlib>=1.2.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+itsdangerous>=2.1.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Templates et sessions
+jinja2>=3.1.0
+python-multipart>=0.0.6
+
+# Monitoring (optionnel)
+sentry_sdk>=1.32.0
+
+# Utilitaires
+markdown>=3.5.0
+markdown-it-py
+mdit-py-plugins
+markdown-mermaid
+
+# Git
+dulwich

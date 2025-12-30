@@ -1,0 +1,506 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import httpx
+
+# Chemin absolu vers le dossier 'kernel'
+kernel_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'zapiz'))
+
+# Ajout au chemin d'import
+if kernel_path not in sys.path:
+    sys.path.insert(0, kernel_path)
+
+from zapiz import Zapiz
+
+import os,argparse,sys,configparser
+
+import re
+import markdown
+from markdown_it import MarkdownIt
+from mdit_py_plugins.tasklists import tasklists_plugin
+
+from SimpleGit import SimpleGit
+
+parser = argparse.ArgumentParser(
+    description="Bordoc au bord de la Doc"
+    )
+parser.add_argument("--cfgfile", default="/usr/local/etc/bordoc.cfg", help="Specify a config file")
+parser.add_argument("--name", default="default", help="Specify a part of a config file")
+
+SLIDES_DIR = "/slides"
+MARP_URL = "http://marp:8080"
+
+repoGit=SimpleGit(SLIDES_DIR)
+
+# 🧩 Analyse des arguments
+args,unknown = parser.parse_known_args()
+
+# ⚠️ Gestion des arguments inconnus
+if unknown:
+    print("❌ Arguments inconnus :", ' '.join(unknown))
+    parser.print_help()
+    sys.exit(1)
+
+
+cfg={}
+cfg['API_PORT']= 8888
+cfg['API_HOST']= "0.0.0.0"
+###cfg['MAX_RETRIES']= 3
+###cfg['RETRY_DELAY']= 3  # secondes
+
+cfg['SECRET_KEY']= "your-secret-key"
+cfg['ALGORITHM']= "HS256"
+cfg['TOKEN_EXPIRY_HOURS']= 2
+cfg['SENTRY_DSN']=None
+cfg['SENTRY_RELEASE']='Unknown'
+cfg['OIDC_CLIENT_ID']=None
+cfg['OIDC_CLIENT_SECRET']=None
+cfg['OIDC_ISSUER']=None
+cfg['OIDC_AUTH_URL']=None
+cfg['OIDC_TOKE_URL']=None
+cfg['OIDC_REDI_URL']=None
+cfg['OIDC_JWKS_URL']=None
+cfg['OIDC_USIN_URL']=None
+
+cfg['USER_CSVFILE']=None
+
+cfg['HAPACL_FULL']=None
+cfg['HAPACL_Status']=None
+
+if os.path.exists(args.cfgfile) and os.path.isfile(args.cfgfile):
+    config= configparser.ConfigParser()
+    config.optionxform=str
+    config.read(args.cfgfile)
+    if args.name not in config.keys():
+        print(f'No {args.name} in {args.cfgfile}... OOOoooops')
+        sys.exit(1)
+    for elem in cfg.keys():
+        if elem not in config[args.name]:
+            continue
+        cfg[elem]=config[args.name][elem]
+elif os.getenv('AMI_HOST',None):
+    for elem in cfg.keys():
+        cfg[elem]=os.getenv(elem,cfg[elem])
+else:
+    print(f'No {args.cfgfile}.... Kouik')
+    sys.exit(1)
+
+#for elem in ['API_PORT','AMI_PORT','MAX_RETRIES','RETRY_DELAY']:
+#    i=cfg[elem]
+#    cfg[elem]=int(i)
+for elem in ['TOKEN_EXPIRY_HOURS']:
+    i=cfg[elem]
+    cfg[elem]=float(i)
+
+if 'SENTRY_DSN' in cfg.keys():
+    print("Sentry Enabling")
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=cfg['SENTRY_DSN'],
+        environment=cfg['SENTRY_RELEASE'],
+        release="bordoc@0.0.2",
+        # Add data like request headers and IP for users,
+        # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+        send_default_pii=True,
+        )
+
+
+
+#def form_newHome(varSession,params={}):
+#    template_data={}
+#    #template_data['Debug']=Debug
+#
+#    #return({'template':"acceuil.html",'varSession': varSession , 'templateid':'astemplate','template_data':template_data})
+#    return({'template':"acceuil.html",'varSession': varSession , 'template_data':template_data})
+
+def funNull(varSession,params={}):
+    return(None)
+
+def form_SlideIndex(varSession,params={}):
+    files = [f for f in os.listdir(SLIDES_DIR) if f.endswith(".md")]
+    template_data={}
+    template_data['files']=files
+    return({'template':"slide-index.html",'varSession': varSession , 'template_data':template_data})
+    return templates.TemplateResponse("slide-index.html", {"request": request, "files": files})
+
+#@app.get("/slides/{path:path}")
+#async def proxy_slides(path: str):
+async def proxy_slides(varSession,params={}):
+    # Exemple : /slides/intro.md → http://marp:8080/intro.md
+    path=params.get("path","")
+    url = f"{MARP_URL}/{path}"
+    print(f'Ouiiii {path}')
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+
+    # On renvoie tel quel (HTML, CSS, JS, images…)
+    template_data={}
+    template_data['initial_md']=""
+    template_data['initial_html']=r.content
+
+    # Supression commentaires
+    text=remove_comments(r.content.decode('utf-8'))
+    # Suppresion webSocket
+    text = re.sub(r'<script>window\.__marpCliWatchWS="/\.__marp-cli-watch-notifier__/.*?</script>', '', text, flags=re.DOTALL)
+
+    # Rajout du style
+    text=text.replace('</head>','\n<link rel="stylesheet" href="/static/marp-style.css">\n</head>')
+    text=text.replace('</body>','\n<script src="/static/script.js"></script>\n<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>\n</body>')
+
+    # on met du draft
+    #patdraft= r"\ndraft:\s*(.*?)\s*</p>\s*\n"
+    patdraft = r"\n(?:<p>)?draft:\s*(.*?)\s*(?:</p>|<br\s*/?>)\s*\n"
+    match = re.search(patdraft, text, re.DOTALL | re.IGNORECASE)
+    draft=""
+    if match:
+        draft=match.group(1).strip()
+        print(f'Matchedi {draft}')
+    if draft.strip().lower() in ('true','yes'):
+        text=text.replace('<body>','<body class="draft">')
+    else:
+        text= re.sub(patdraft, "\n", text, flags=re.DOTALL | re.IGNORECASE)
+
+
+    # On check les case
+    text=text.replace('[ ] ','<input class="task-list-item-checkbox" disabled="disabled" type="checkbox"> ')
+    text=text.replace('[X] ','<input class="task-list-item-checkbox" checked="checked" disabled="disabled" type="checkbox"> ')
+
+    # On met en place le mermaid
+    pattern = re.compile( r'<pre[^>]*is="marp-pre"[^>]*>\s*<code class="language-mermaid">(.*?)</code>\s*</pre>', re.DOTALL)
+    text=pattern.sub(r'<div class="mermaid">\1</div>',text)
+
+    # On modifie le href
+    text=re.sub(r'<a href="">([^<]+\.md)</a>',r'<a href="/\1">\1</a>',text)
+
+    #return({'template':"editor.html",'varSession': varSession , 'template_data':template_data})
+    return {
+        "Phtml_content":r.content,
+        #"html_content":re.sub(COMMENT_PATTERN, "", r.content.decode('utf-8').replace('</head>','<link rel="stylesheet" href="/static/style.css"></head>').replace('</body>','<script src="/static/script.js"></script><script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script></body>')),
+        "html_content":text,
+        "status_code":r.status_code,
+        "headers":r.headers,
+        "template": None
+        }
+    return Response(
+        content=r.content,
+        status_code=r.status_code,
+        headers=r.headers
+    )
+
+def slugify(text):
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s-]", "", text)
+    text = re.sub(r"\s+", "-", text)
+    return text.strip("-")
+
+def heading_anchors_plugin(md, toc_list):
+    def add_anchors(state):
+        tokens = state.tokens
+        for i, token in enumerate(tokens):
+            if token.type == "heading_open":
+                level = int(token.tag[1])
+                content_token = tokens[i + 1]
+                text = content_token.content
+                anchor = slugify(text)
+
+                # ✔️ Méthode correcte pour ajouter un attribut
+                token.attrSet("id", anchor)
+
+                # ✔️ Ajouter à la TOC
+                toc_list.append({
+                    "level": level,
+                    "text": text,
+                    "id": anchor
+                })
+
+    md.core.ruler.push("heading_anchors", add_anchors)
+
+
+
+def remove_comments(text):
+    COMMENT_PATTERN = re.compile(r"%%(.*?)%%", re.DOTALL)
+    return re.sub(COMMENT_PATTERN, "", text)
+
+def extract_frontmatter(text):
+    meta = {
+        "title": None,
+        "tags": [],
+        "description": None,
+        "date": None,
+        "draft": False
+    }
+
+    # title:
+    m = re.search(r"^title:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        meta["title"] = m.group(1).strip()
+
+    # tags:
+    m = re.search(r"^tags:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        meta["tags"] = [t.strip() for t in m.group(1).split(",")]
+
+    # description:
+    m = re.search(r"^description:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        meta["description"] = m.group(1).strip()
+
+    # date:
+    m = re.search(r"^date:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        meta["date"] = m.group(1).strip()
+
+    # draft:
+    m = re.search(r"^draft:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        meta["draft"] = m.group(1).strip().lower() in ("true", "yes", "1")
+
+    # Supprimer les lignes du front‑matter
+    cleaned = re.sub(r"^(title|tags|description|date|draft):.*$", "", text, flags=re.MULTILINE)
+
+    return cleaned.strip(), meta
+
+def mermaid_plugin(md: MarkdownIt):
+    default_fence = md.renderer.rules.get("fence", None)
+
+    def render_mermaid(tokens, idx, options, env):
+        token = tokens[idx]
+        if token.info.strip() == "mermaid":
+            return f'<div class="mermaid">\n{token.content}\n</div>'
+        return default_fence(tokens, idx, options, env)
+
+    md.renderer.rules["fence"] = render_mermaid
+    return md
+
+
+def render_markdown(text):
+    # 1) Supprimer les commentaires
+    text = remove_comments(text)
+
+    # 2) Extraire front‑matter
+    text, meta = extract_frontmatter(text)
+
+    # 3) Générer TOC
+    toc = []
+
+    # 4) Configurer markdown-it
+    md = (
+        MarkdownIt("commonmark", {
+            "html": True,
+            "linkify": True,
+            "typographer": True
+        })
+        .enable("strikethrough")
+        .enable("table")
+        .enable("fence")
+        .enable("blockquote")
+        .enable("list")
+        .enable("code")
+        .use(tasklists_plugin)
+        .use(heading_anchors_plugin, toc)
+        .use(mermaid_plugin)  # ← AJOUT ICI
+    )
+
+    # 5) Rendu HTML
+    html = md.render(text)
+    html=re.sub(r'<a href="">([^<]+\.md)</a>',r'<a href="/\1">\1</a>',html)
+
+    return html, toc, meta
+
+def form_accueil(varSession,params={}):
+    mdd=""
+    path=params.get("path","")
+    if not len(path):
+        path="accueil.md"
+    ret=repoGit.read(path)
+    if ret['success']:
+        print(f'Charging {path}')
+        print(ret)
+        mdd=ret.get('content','')
+    else:
+        print(ret)
+
+    html,toc,meta = render_markdown(mdd)
+    template_data={}
+    template_data['filename']=path
+    template_data['html']=html
+    template_data['toc']=toc
+    template_data['title']=meta['title']
+    template_data['tags']=meta['tags']
+    template_data['description']=meta['description']
+    template_data['date']=meta['date']
+    template_data['draft']=meta['draft']
+    print(template_data)
+
+    return({'template':"page_markdown.html",'varSession': varSession,'template_data':template_data})
+
+#def form_md(varSession,params={}):
+#    toc=[]
+#    md = (
+#        MarkdownIt("commonmark", {
+#            "html": True,
+#            "linkify": True,
+#            "typographer": True
+#            })
+#        .enable("strikethrough")   # ~~texte~~
+#        .enable("table")           # tableaux
+#        .enable("fence")           # ```code```
+#        .enable("blockquote")      # > citation
+#        .enable("list")            # listes
+#        .enable("code")            # indentation code
+#        .use(tasklists_plugin)     # - [x] cases à cocher
+#        .use(heading_anchors_plugin, toc)  # ← plugin TOC + ancres
+#        )
+#
+#    mdd=""
+#    path=params.get("path","")
+#    if not len(path):
+#        path="pouette.md"
+#
+#    with open('/slides/'+path,'r') as f:
+#            mdd=f.read()
+#
+#    html = md.render(mdd)
+#    print(toc)
+#    return {
+#        "html_content":html,
+#        "toc": toc,
+#        "status_code":200,
+#        "template": None
+#        }
+#    template_data={}
+#    template_data['content']=html
+#    return({'varSession': varSession , 'template_data':template_data})
+#    return {"html": html}
+#    #return({'template':"acceuil.md",'varSession': varSession})
+
+async def liste_fichiers(varSession,params={}):
+    #files = [f for f in os.listdir("/slides") if f.endswith(".md")]
+    ret=repoGit.ls("")
+    files=[ f for f in repoGit.ls("").get('files',[]) if f.endswith(".md")]
+    print(ret)
+    return {"files": files}
+
+
+async def form_editor(varSession,params={}):
+    path=params.get("path","")
+    # Contenu de départ
+    ret=repoGit.read('path')
+    if not ret['success']:
+        initial_md = """# Titre
+
+Édite ce texte en **Markdown** à gauche.
+La prévisualisation s’affiche à droite.
+
+- Point 1
+- Point 2
+"""
+    else:
+        initial_md=ret.content
+    initial_html,toc,meta = render_markdown(initial_md)
+    template_data={}
+    template_data['initial_md']=initial_md
+    template_data['initial_html']=initial_html
+    newtoc=""
+    for item in toc:
+        print(item)
+        level=item['level']
+        titre=item['text']
+        newtoc+=f'        <li><span class="toc-level-{level}">{titre}</span></li>\n'
+    template_data['toc']=newtoc
+    return({'template':"editor.html",'varSession': varSession , 'template_data':template_data})
+    return templates.TemplateResponse(
+        "editor.html",
+        {
+            "request": request,
+            "initial_md": initial_md,
+            "initial_html": initial_html,
+        },
+    )
+
+async def api_read(varSession,params={}):
+    mdd=""
+    path=params.get("path","")
+    if len(path):
+        ret=repoGit.read(path)
+        if ret['success']:
+            print(f'Charging {path}')
+            mdd=ret.get('content','')
+
+    return({ 'content':mdd})
+
+async def api_preview(varSession,params={}):
+    data = varSession.get('form')
+    #data = await request.json()
+    md_text = data.get("markdown", "")
+    html,toc,meta = render_markdown(md_text)
+    
+    return({"html": html  })
+
+async def api_save(varSession,params={}):
+    print('Try To save')
+    #print(varSession.get('form'))
+    data=varSession.get('form')
+    print(f"fichier : { data.get('filename') }")
+    print(data)
+    ret=repoGit.write(filepath=data.get('filename'),content=data.get('markdown'))
+    print(repoGit.branches())
+    return(ret)
+
+app = Zapiz(
+    host=cfg['API_HOST'],
+    port=cfg['API_PORT'],
+    title="bordoc",
+    description="Au bord de la Doc",
+    version="0.0.1",
+    docs_url="/docs",               # URL de Swagger
+    redoc_url="/redoc",             # URL de Redoc
+    openapi_url="/openapi.json",    # Spécification OpenAPI
+#    oidc_client_id=cfg['OIDC_CLIENT_ID'],
+#    oidc_client_secret=cfg['OIDC_CLIENT_SECRET'],
+#    oidc_issuer=cfg['OIDC_ISSUER'],
+#    oidc_auth_url=cfg['OIDC_AUTH_URL'],
+#    oidc_toke_url=cfg['OIDC_TOKE_URL'],
+#    oidc_redi_url=cfg['OIDC_REDI_URL'],
+#    oidc_jwks_url=cfg['OIDC_JWKS_URL'],
+#    oidc_usin_url=cfg['OIDC_USIN_URL'],
+    user_csvfile=cfg['USER_CSVFILE'],
+    sentry=cfg['SENTRY_DSN'],
+#    secret_key=cfg['SECRET_KEY'],
+#    startup=asti.startup
+    )
+
+
+
+
+# Creation du nouvel environnement
+#app.add_template('astemplate')
+app.api_add("/",form_accueil)
+#@app.get("/slides/{path:path}")
+#async def proxy_slides(path: str):
+app.api_add("/slides",form_SlideIndex)
+app.api_add("/slides/{path:path}",proxy_slides,daType='Dhtml')
+app.api_add("/edit",form_editor)
+app.api_add("/edit/{path:path}",form_editor)
+app.api_add("/read/{path:path}",api_read,daType='json')
+app.api_add('/favicon.ico',funNull,file="static/favicon.ico")
+#app.api_add("/md",form_md,daType='Dhtml')
+#app.api_add("/md/{path:path}",form_md,daType='Dhtml')
+app.api_add("/preview",api_preview,daType='json',verb="POST")
+app.api_add("/listefichiers",liste_fichiers,daType='json')
+app.api_add("/save",api_save,verb='POST',daType='json')
+
+#app.api_add("/planningAstreinte",form_planningAstreinte,acl=os.getenv('HAPACL_Status',None)) # Page de garde
+#app.api_add("/planningAstreinte",form_planningAstreinte,verb="POST",acl=os.getenv('HAPACL_FULL',None)) # Action boutons
+#app.api_add("/planningAstreinte/{num}",form_planningAstreinte,acl=os.getenv('HAPACL_FULL',None)) # Chargement page modif
+#app.api_add("/planningAstreinte/{num}",form_planningAstreinte,verb="POST",acl=os.getenv('HAPACL_FULL',None)) # Ecriture dans base des modif
+#app.api_add("/standard",form_gestStd,acl=os.getenv('HAPACL_Status',None))
+#app.api_add("/api/std_status",api_std_status,acl=os.getenv('HAPACL_FULL',None))
+#app.api_add("/api/std_status",api_std_status,verb="POST",acl=os.getenv('HAPACL_FULL',None))
+
+# Et... C'est partiiiiiiiiiiiiii
+print('Ready to Get Connexion')
+app.run()

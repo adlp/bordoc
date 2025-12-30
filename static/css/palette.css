@@ -1,0 +1,54 @@
+#command-palette {
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  background: white;
+  border: 1px solid #aaa;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  display: none;
+  z-index: 999999;
+}
+#command-input {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-bottom: 1px solid #ccc;
+  font-size: 16px;
+  outline: none;
+}
+#command-results {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.command-item {
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.command-item:hover,
+.command-item.active {
+  background: #e8f1ff;
+}
+#autocomplete-menu {
+  position: absolute;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  display: none;
+  z-index: 99999;
+  font-size: 14px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.autocomplete-item {
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background: #e8f1ff;
+}
+

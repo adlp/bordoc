@@ -1,0 +1,60 @@
+<div id="right-content" class="right-content">
+
+    {% if tags %}
+    <section class="right-section">
+        <h3>Tags</h3>
+        <ul class="tag-list">
+            {% for tag in tags %}
+            <li class="tag-item">{{ tag }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if toc %}
+    <section class="right-section">
+        <h3>Sommaire</h3>
+        <ul class="toc-list">
+            {% for item in toc %}
+            <li class="toc-item level-{{ item.level }}">
+                <a href="#{{ item.id }}">{{ item.text }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+</div>
+
+<div id="right-footer" class="right-footer">
+
+    <a href="/slides/{{ filename }}" target="_blank" title="Voir en Marp">
+        <i class="fa-solid fa-file-powerpoint"></i>
+    </a>
+
+    <a href="/edit/{{ filename }}" target="_blank" title="Éditer">
+        <i class="fa-solid fa-pen-to-square"></i>
+    </a>
+
+    <a href="/pdf/{{ filename }}" target="_blank" title="Télécharger PDF">
+        <i class="fa-solid fa-file-pdf"></i>
+    </a>
+
+    <a href="/raw/{{ filename }}" target="_blank" title="Voir Markdown brut">
+        <i class="fa-solid fa-file-lines"></i>
+    </a>
+
+    <a href="/history/{{ filename }}" target="_blank" title="Historique">
+        <i class="fa-solid fa-clock-rotate-left"></i>
+    </a>
+
+    <a href="#" class="share-link" title="Partager">
+        <i class="fa-solid fa-share-nodes"></i>
+    </a>
+
+    <a href="#" class="copy-link" title="Copier le lien">
+        <i class="fa-solid fa-copy"></i>
+    </a>
+
+</div>
+

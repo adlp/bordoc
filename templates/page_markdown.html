@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block central %}
+<article class="markdown-page">
+
+    {% if title %}
+    <h1 class="doc-title">{{ title }}</h1>
+    {% endif %}
+
+    {% if description or date or draft %}
+    <div class="doc-meta">
+        {% if description %}
+        <div class="doc-description">{{ description }}</div>
+        {% endif %}
+
+        {% if date %}
+        <div class="doc-date">
+            <i class="fa-regular fa-calendar"></i> {{ date }}
+        </div>
+        {% endif %}
+
+        {% if draft %}
+        <span class="doc-badge draft-badge">DRAFT</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="markdown-body">
+        {{ html|safe }}
+    </div>
+
+</article>
+{% endblock %}
+

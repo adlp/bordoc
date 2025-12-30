@@ -1,0 +1,68 @@
+#emoji-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 420px;
+  height: 380px;
+  background: white;
+  border: 1px solid #aaa;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  display: none;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+}
+#emoji-header {
+  display: flex;
+  padding: 8px;
+  border-bottom: 1px solid #ccc;
+  gap: 8px;
+}
+#emoji-search {
+  flex: 1;
+  padding: 6px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+}
+#emoji-tabs {
+  display: flex;
+  border-bottom: 1px solid #ccc;
+}
+#emoji-tabs button {
+  flex: 1;
+  padding: 6px;
+  border: none;
+  background: #f0f0f0;
+  cursor: pointer;
+}
+#emoji-tabs button.active {
+  background: white;
+  border-bottom: 2px solid #007bff;
+}
+#emoji-content {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+#emoji-list, #kaomoji-list, #gif-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.emoji-item, .kaomoji-item, .gif-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.emoji-item:hover,
+.kaomoji-item:hover,
+.gif-item:hover {
+  background: #e8f1ff;
+}
+.gif-item img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+}

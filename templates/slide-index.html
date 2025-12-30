@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Slides disponibles</title>
+</head>
+<body>
+  <h1>Slides disponibles</h1>
+  <ul>
+    {% for file in files %}
+      <li><a href="/slides/{{ file }}">{{ file }}</a></li>
+    {% endfor %}
+  </ul>
+</body>
+</html>
+

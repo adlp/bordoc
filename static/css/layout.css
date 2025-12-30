@@ -1,0 +1,80 @@
+#container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+#file-explorer {
+  width: 220px;
+  background: #fafafa;
+  border-right: 1px solid #ccc;
+  padding: 10px;
+  overflow-y: auto;
+  display: none;
+}
+#work-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#tabs {
+  display: flex;
+  background: #eaeaea;
+  border-bottom: 1px solid #ccc;
+  min-height: 32px;
+  align-items: center;
+}
+.tab {
+  padding: 6px 12px;
+  cursor: pointer;
+  border-right: 1px solid #ccc;
+  background: #f7f7f7;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab.active {
+  background: white;
+  font-weight: bold;
+}
+.close-tab {
+  color: #900;
+  cursor: pointer;
+  font-weight: bold;
+}
+.close-tab:hover {
+  color: red;
+}
+#editor-preview {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+#actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #f0f0f0;
+  border-top: 1px solid #ccc;
+  gap: 20px;
+}
+#filename {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  font-size: 14px;
+}
+#actions button {
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid #aaa;
+  background: white;
+  border-radius: 4px;
+}
+#actions button:hover {
+  background: #e0e0e0;
+}
+

@@ -1,0 +1,17 @@
+body.draft {
+    position: relative !important;
+}
+
+body.draft::before {
+    content: "DRAFT";
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) rotate(-30deg) !important;
+    font-size: 20vw !important;
+    font-weight: 900 !important;
+    color: rgba(200, 0, 0, 0.15) !important;
+    z-index: 999999 !important;
+    pointer-events: none !important;
+    user-select: none !important;
+}
