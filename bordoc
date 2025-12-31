@@ -380,7 +380,12 @@ def form_accueil(varSession,params={}):
 async def liste_fichiers(varSession,params={}):
     #files = [f for f in os.listdir("/slides") if f.endswith(".md")]
     ret=repoGit.ls("")
-    files=[ f for f in repoGit.ls("").get('files',[]) if f.endswith(".md")]
+    files=[]
+    for f in repoGit.ls("").get('entries',[]):
+        name=f.get('name','')
+        if f.get('type','') == 'file' and name.endswith(".md"):
+            files.append(name)
+    #files=[ f for f in repoGit.ls("").get('files',[]) if f.endswith(".md")]
     print(ret)
     return {"files": files}
 
