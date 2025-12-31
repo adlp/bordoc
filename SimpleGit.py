@@ -278,11 +278,12 @@ class SimpleGit:
     # ------------------------------------------------------------------
     def ls(self, path: str = "", branch: str = "main") -> Dict[str, Any]:
         path = path.strip("/")
-
+    
         try:
             commit = self._get_head_commit(branch)
             tree = self.repo[commit.tree]
-
+    
+            # Descente dans l'arborescence si path est fourni
             if path:
                 parts = path.split("/")
                 cur = tree
@@ -296,24 +297,76 @@ class SimpleGit:
                         raise NotADirectoryError(f"{path} is not a directory")
                     cur = obj
                 tree = cur
-
-            #files = [name.decode() for name, (mode, sha) in tree.items()]
-            files = [name.decode() for name, mode, sha in tree.items()]
-
+    
+            entries = []
+    
+            for name, mode, sha in tree.items():
+                name_str = name.decode()
+                obj = self.repo[sha]
+    
+                # Déterminer le type
+                if isinstance(obj, Tree):
+                    entry_type = "directory"
+                elif isinstance(obj, Blob):
+                    if mode == 0o120000:
+                        entry_type = "symlink"
+                    else:
+                        entry_type = "file"
+                else:
+                    entry_type = "unknown"
+    
+                # Branches où l'entrée diffère
+                changed_in = []
+    
+                for ref in self.repo.refs.keys():
+                    if not ref.startswith(b"refs/heads/"):
+                        continue
+    
+                    other_branch = ref.decode().replace("refs/heads/", "")
+                    if other_branch == branch:
+                        continue
+    
+                    other_commit = self._get_head_commit(other_branch)
+                    other_tree = self.repo[other_commit.tree]
+    
+                    try:
+                        cur = other_tree
+                        if path:
+                            for p in path.split("/"):
+                                m2, s2 = cur[p.encode()]
+                                cur = self.repo[s2]
+    
+                        # Maintenant cur est le tree correspondant
+                        m2, s2 = cur[name]
+                        if s2 != sha:
+                            changed_in.append(other_branch)
+    
+                    except Exception:
+                        # Le fichier n'existe pas dans cette branche → considéré comme différent
+                        changed_in.append(other_branch)
+    
+                entries.append({
+                    "name": name_str,
+                    "type": entry_type,
+                    "mode": mode,
+                    "sha": sha.hex(),
+                    "changed_in_branches": changed_in,
+                })
+    
             return {
                 "success": True,
                 "branch": branch,
                 "path": path or ".",
-                "files": files,
+                "entries": entries,
                 "error": None,
             }
-
+    
         except Exception as e:
             return {
                 "success": False,
                 "branch": branch,
                 "path": path or ".",
-                "files": [],
+                "entries": [],
                 "error": str(e),
             }
 
