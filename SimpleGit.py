@@ -307,13 +307,16 @@ class SimpleGit:
                 # Déterminer le type
                 if isinstance(obj, Tree):
                     entry_type = "directory"
+                    size = None
                 elif isinstance(obj, Blob):
                     if mode == 0o120000:
                         entry_type = "symlink"
                     else:
                         entry_type = "file"
+                    size = len(obj.data)
                 else:
                     entry_type = "unknown"
+                    size = None
     
                 # Branches où l'entrée diffère
                 changed_in = []
@@ -336,20 +339,58 @@ class SimpleGit:
                                 m2, s2 = cur[p.encode()]
                                 cur = self.repo[s2]
     
-                        # Maintenant cur est le tree correspondant
                         m2, s2 = cur[name]
                         if s2 != sha:
                             changed_in.append(other_branch)
     
                     except Exception:
-                        # Le fichier n'existe pas dans cette branche → considéré comme différent
                         changed_in.append(other_branch)
+    
+                # Trouver le dernier commit ayant modifié cette entrée
+                last_commit_id = None
+                last_commit_time = None
+                last_commit_author = None
+                last_commit_message = None
+    
+                scan_commit = commit.id
+                while scan_commit:
+                    c = self.repo[scan_commit]
+                    t = self.repo[c.tree]
+    
+                    try:
+                        cur = t
+                        if path:
+                            for p in path.split("/"):
+                                m2, s2 = cur[p.encode()]
+                                cur = self.repo[s2]
+    
+                        m2, s2 = cur[name]
+    
+                        if s2 == sha:
+                            last_commit_id = c.id.hex()
+                            last_commit_time = c.commit_time
+                            last_commit_author = c.author.decode("utf-8", errors="ignore")
+                            last_commit_message = c.message.decode("utf-8", errors="ignore")
+                            break
+    
+                    except Exception:
+                        pass
+    
+                    if c.parents:
+                        scan_commit = c.parents[0]
+                    else:
+                        break
     
                 entries.append({
                     "name": name_str,
                     "type": entry_type,
                     "mode": mode,
                     "sha": sha.hex(),
+                    "size": size,
+                    "last_commit_id": last_commit_id,
+                    "last_commit_time": last_commit_time,
+                    "last_commit_author": last_commit_author,
+                    "last_commit_message": last_commit_message,
                     "changed_in_branches": changed_in,
                 })
     
