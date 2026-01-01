@@ -1,727 +1,525 @@
-from pathlib import Path
-import os
-from typing import Optional, List, Dict, Any
+from __future__ import annotations
 
+import os
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from dulwich import porcelain
 from dulwich.repo import Repo
-from dulwich.objects import Blob, Tree, Commit
-from dulwich.errors import NotGitRepository
-from dulwich.index import build_index_from_tree, commit_tree
-from dulwich.client import get_transport_and_path
-from dulwich.refs import ANNOTATED_TAG_SUFFIX
+from dulwich.objects import Commit
+
+
+@contextmanager
+def chdir(path: Path | str):
+    old = os.getcwd()
+    os.chdir(str(path))
+    try:
+        yield
+    finally:
+        os.chdir(old)
+
+
+@dataclass
+class SimpleGitResult:
+    success: bool
+    message: str
+    error: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 class SimpleGit:
-    def __init__(self, path: str):
-        self.repo_path = Path(path).resolve()
-        if not self.repo_path.exists():
-            self.repo_path.mkdir(parents=True)
+    def __init__(self, repo_path: str | Path, default_branch: str = "main"):
+        self.repo_path = Path(repo_path).resolve()
+        self.default_branch = default_branch
+    
+        # Créer le repo s'il n'existe pas
+        if not (self.repo_path / ".git").exists():
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+            porcelain.init(str(self.repo_path))
+    
+        # Charger le repo
+        self.repo = Repo(str(self.repo_path))
+    
+        # ------------------------------------------------------------
+        # Supprimer master créé automatiquement par Dulwich
+        # ------------------------------------------------------------
+        with chdir(self.repo_path):
+            refs = self.repo.refs
+    
+            master_ref = b"refs/heads/master"
+    
+            # Si master existe mais ne pointe sur aucun commit → on le supprime
+            if master_ref in refs:
+                try:
+                    _ = self.repo[refs[master_ref]]
+                except Exception:
+                    del refs[master_ref]
+    
+            # IMPORTANT : HEAD doit pointer vers main SYMBOLIQUEMENT
+            # mais la branche main NE DOIT PAS être créée ici.
+            refs.set_symbolic_ref(b"HEAD", f"refs/heads/{self.default_branch}".encode())
+    
+    def __initmaster(self, repo_path: str | Path, default_branch: str = "main"):
+        self.repo_path = Path(repo_path).resolve()
+        self.default_branch = default_branch
+    
+        # Créer le repo s'il n'existe pas
+        if not (self.repo_path / ".git").exists():
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+            porcelain.init(str(self.repo_path))
+    
+        # Charger le repo
+        self.repo = Repo(str(self.repo_path))
 
+    
+    def __initii(self, repo_path: str | Path, default_branch: str = "main"):
+        self.repo_path = Path(repo_path).resolve()
+        self.default_branch = default_branch
+    
+        # Créer le repo s'il n'existe pas
+        if not (self.repo_path / ".git").exists():
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+            porcelain.init(str(self.repo_path))
+    
+        # Charger le repo
+        self.repo = Repo(str(self.repo_path))
+    
+        # ------------------------------------------------------------
+        # CORRECTIF : supprimer master créé automatiquement par Dulwich
+        # ------------------------------------------------------------
+        with chdir(self.repo_path):
+            refs = self.repo.refs
+    
+            master_ref = b"refs/heads/master"
+    
+            # Si master existe mais ne pointe sur aucun commit → on le supprime
+            if master_ref in refs:
+                try:
+                    _ = self.repo[refs[master_ref]]
+                except Exception:
+                    del refs[master_ref]
+    
+            # IMPORTANT : HEAD doit pointer vers une branche SYMBOLIQUE,
+            # mais cette branche n'existe pas encore.
+            # On le met sur refs/heads/main AVANT que la branche existe.
+            refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")
+    
+
+    # ------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------
+
+    def _get_head_branch(self) -> Optional[str]:
         try:
-            self.repo = Repo(str(self.repo_path))
-        except NotGitRepository:
-            self.repo = Repo.init(str(self.repo_path))
+            with chdir(self.repo_path):
+                ref = self.repo.refs.read_ref(b"HEAD")
+                if ref and ref.startswith(b"refs/heads/"):
+                    return ref.decode().split("refs/heads/")[1]
+        except Exception:
+            pass
+        return None
 
-        # Si aucun commit/branche, créer un commit initial sur main
-        if not self.repo.refs.keys():
-            self._initial_commit()
-
-        # S’assurer qu’une branche main existe
-        if b"refs/heads/main" not in self.repo.refs:
-            head = self.repo.head()
-            self.repo.refs[b"refs/heads/main"] = head
-            self.repo.refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")
-
-    # ------------------------------------------------------------------
-    # Internes
-    # ------------------------------------------------------------------
-    def _initial_commit(self):
-        """
-        Crée un commit initial vide sur main.
-        """
-        tree = Tree()
-        tree_id = self.repo.object_store.add_object(tree)
-
-        commit = Commit()
-        commit.tree = tree_id
-        commit.author = commit.committer = b"simplegit <local>"
-        commit.message = b"Initial commit"
-        commit.encoding = b"UTF-8"
-        from time import time
-        now = int(time())
-        commit.commit_time = now
-        commit.author_time = now
-        commit.commit_timezone = 0
-        commit.author_timezone = 0
-
-        commit_id = self.repo.object_store.add_object(commit)
-
-        self.repo.refs[b"refs/heads/main"] = commit_id
-        self.repo.refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")
-
-    def _get_head_commit(self, branch: str) -> Commit:
+    def _get_head_commit(self, branch: Optional[str] = None) -> Optional[Commit]:
+        branch = branch or self._get_head_branch()
+        if not branch:
+            return None
         ref = f"refs/heads/{branch}".encode()
         if ref not in self.repo.refs:
-            # si la branche n’existe pas, la créer à partir de HEAD
-            base = self.repo.head()
-            self.repo.refs[ref] = base
+            return None
         return self.repo[self.repo.refs[ref]]
 
-    def _build_working_tree_index(self, commit: Commit):
-        """
-        Reconstruit l’index à partir du tree de HEAD.
-        """
-        tree_id = commit.tree
-        build_index_from_tree(
-            self.repo.path,
-            self.repo.index_path(),
-            self.repo.object_store,
-            tree_id,
-        )
-
-    def _get_blob_content_from_commit(
-        self, commit: Commit, filepath: str
-    ) -> Optional[bytes]:
-        """
-        Récupère le contenu d’un fichier dans un commit, ou None s’il n’existe pas.
-        """
-        tree = self.repo[commit.tree]
-        parts = filepath.strip("/").split("/")
-        cur = tree
-        try:
-            for p in parts:
-                mode, sha = cur[p.encode()]
-                obj = self.repo[sha]
-                if isinstance(obj, Tree):
-                    cur = obj
-                else:
-                    # dernier élément
-                    if p == parts[-1]:
-                        if isinstance(obj, Blob):
-                            return obj.data
-                        else:
-                            return None
-                    else:
-                        return None
-            return None
-        except KeyError:
-            return None
-
-    def _create_commit(
-        self,
-        message: str,
-        branch: str,
-        parents: Optional[List[bytes]] = None,
-    ) -> bytes:
-        """
-        Crée un commit à partir de l’index courant.
-        """
-        # Générer un tree à partir de l’index
-        tree_id = commit_tree(self.repo.object_store, self.repo.index)
-
-        commit = Commit()
-        commit.tree = tree_id
-        if parents:
-            commit.parents = parents
-        else:
-            try:
-                head = self._get_head_commit(branch)
-                commit.parents = [head.id]
-            except KeyError:
-                commit.parents = []
-
-        commit.author = commit.committer = b"simplegit <local>"
-        commit.message = message.encode("utf-8")
-        commit.encoding = b"UTF-8"
-
-        from time import time
-        now = int(time())
-        commit.commit_time = now
-        commit.author_time = now
-        commit.commit_timezone = 0
-        commit.author_timezone = 0
-
-        commit_id = self.repo.object_store.add_object(commit)
-
+    def _ensure_branch(self, branch: str) -> SimpleGitResult:
+        branch = branch.strip()
         ref = f"refs/heads/{branch}".encode()
-        self.repo.refs[ref] = commit_id
-        # HEAD reste symbolique vers cette branche (pas besoin de le changer ici)
 
-        return commit_id
+        with chdir(self.repo_path):
+            refs = self.repo.refs
 
-    # ------------------------------------------------------------------
-    # WRITE (avec commit seulement si changement)
-    # ------------------------------------------------------------------
+            if ref not in refs:
+                head_commit = self._get_head_commit()
+                if not head_commit:
+                    return SimpleGitResult(False, "Cannot create branch: no commit exists yet", error="no_head")
+                refs[ref] = head_commit.id
+
+            refs.set_symbolic_ref(b"HEAD", ref)
+
+        return SimpleGitResult(True, "Branch ready", data={"branch": branch})
+
+    def _create_commit(self, message: str, author: str = "simplegit <local>") -> Optional[str]:
+        repo_path = str(self.repo_path)
+
+        with chdir(self.repo_path):
+            status = porcelain.status(repo_path)
+
+            if (
+                not status.staged["add"]
+                and not status.staged["modify"]
+                and not status.staged["delete"]
+                and not status.unstaged
+                and not status.untracked
+            ):
+                return None
+
+            porcelain.add(repo_path, paths=["."])
+
+            commit_id = porcelain.commit(
+                repo_path,
+                message=message,
+                author=author.encode(),
+                committer=author.encode(),
+                #encoding="utf-8",
+            )
+
+        return commit_id.decode()
+    # ------------------------------------------------------------
+    # Core operations
+    # ------------------------------------------------------------
     def write(
         self,
         filepath: str,
         content: str,
-        branch: str = "main",
+        branch: Optional[str] = "main",
         message: str = "update",
-    ) -> Dict[str, Any]:
-        filepath = filepath.strip("/")
-        full_path = self.repo_path / filepath
-
+        author: str = "simplegit <local>",
+    ) -> SimpleGitResult:
+    
         try:
-            head_commit = self._get_head_commit(branch)
-            old_content = self._get_blob_content_from_commit(head_commit, filepath)
-
-            new_bytes = content.encode("utf-8")
-
-            # Si le contenu n’a pas changé → pas de commit
-            if old_content == new_bytes:
-                return {
-                    "success": True,
-                    "created": False,
-                    "commit": None,
-                    "branch": branch,
-                    "file": filepath,
-                    "message": "No changes",
-                    "error": None,
-                }
-
-            # Écrire le fichier sur disque
+            filepath = filepath.strip("/")
+            full_path = (self.repo_path / filepath).resolve()
+            target_branch = branch or self.default_branch
+            ref = f"refs/heads/{target_branch}".encode()
+    
+            # ------------------------------------------------------------
+            # 1. La branche existe-t-elle ?
+            # ------------------------------------------------------------
+            branch_exists = ref in self.repo.refs
+    
+            # ------------------------------------------------------------
+            # 2. Si la branche n'existe pas → premier commit de cette branche
+            # ------------------------------------------------------------
+            if not branch_exists:
+                # Écrire le fichier
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                full_path.write_text(content, encoding="utf-8")
+    
+                with chdir(self.repo_path):
+                    # Stage
+                    porcelain.add(str(self.repo_path), paths=[filepath])
+    
+                    # Commit initial
+                    commit_id = porcelain.commit(
+                        str(self.repo_path),
+                        message="Initial commit",
+                        author=author,
+                        committer=author,
+                    )
+    
+                    # Créer la branche
+                    sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+                    self.repo.refs[ref] = sha.encode()
+    
+                    # HEAD → branche
+                    self.repo.refs.set_symbolic_ref(b"HEAD", ref)
+    
+                return SimpleGitResult(
+                    True,
+                    "Initial commit created",
+                    data={"file": filepath, "commit": sha, "branch": target_branch},
+                )
+    
+            # ------------------------------------------------------------
+            # 3. Branche existante → basculer dessus
+            # ------------------------------------------------------------
+            with chdir(self.repo_path):
+                self.repo.refs.set_symbolic_ref(b"HEAD", ref)
+    
+            # ------------------------------------------------------------
+            # 4. Écriture normale
+            # ------------------------------------------------------------
+            old_content = full_path.read_text(encoding="utf-8") if full_path.exists() else None
+    
+            if old_content == content:
+                return SimpleGitResult(True, "No changes", data={"file": filepath})
+    
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")
-
-            # Rebuilder l’index depuis HEAD
-            self._build_working_tree_index(head_commit)
-
-            # Ajouter/mettre à jour ce fichier dans l’index
-            rel_path = filepath.encode("utf-8")
-            st = os.stat(str(full_path))
-            with open(full_path, "rb") as f:
-                blob = Blob.from_string(f.read())
-            blob_id = self.repo.object_store.add_object(blob)
-
-            # mode 0o100644 pour fichiers classiques
-            from dulwich.index import index_entry_from_stat
-            entry = index_entry_from_stat(
-                st, blob_id, 0o100644
+    
+            commit_id = porcelain.commit(
+                str(self.repo_path),
+                message=message,
+                author=author,
+                committer=author,
             )
-            self.repo.index[rel_path] = entry
-            self.repo.index.write()
-
-            # Commit
-            commit_id = self._create_commit(message=message, branch=branch)
-
-            return {
-                "success": True,
-                "created": True,
-                "commit": commit_id.hex(),
-                "branch": branch,
-                "file": filepath,
-                "message": message,
-                "error": None,
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "created": False,
-                "commit": None,
-                "branch": branch,
-                "file": filepath,
-                "message": message,
-                "error": str(e),
-            }
-
-    # ------------------------------------------------------------------
-    # READ
-    # ------------------------------------------------------------------
-    def read(
-        self,
-        filepath: str,
-        branch: str = "main",
-        commit_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        filepath = filepath.strip("/")
-
-        try:
-            if commit_id:
-                commit = self.repo[bytes.fromhex(commit_id)]
-            else:
-                commit = self._get_head_commit(branch)
-
-            data = self._get_blob_content_from_commit(commit, filepath)
-
-            if data is None:
-                return {
-                    "success": False,
-                    "content": None,
-                    "branch": branch,
-                    "file": filepath,
-                    "commit": None if not commit_id else commit_id,
-                    "error": f"File '{filepath}' not found",
-                }
-
-            return {
-                "success": True,
-                "content": data.decode("utf-8"),
-                "branch": branch,
-                "file": filepath,
-                "commit": commit.id.hex(),
-                "error": None,
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "content": None,
-                "branch": branch,
-                "file": filepath,
-                "commit": None,
-                "error": str(e),
-            }
-
-    # ------------------------------------------------------------------
-    # LS
-    # ------------------------------------------------------------------
-    def ls(self, path: str = "", branch: str = "main") -> Dict[str, Any]:
-        path = path.strip("/")
     
-        try:
-            commit = self._get_head_commit(branch)
-            tree = self.repo[commit.tree]
+            sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
     
-            # Descente dans l'arborescence si path est fourni
-            if path:
-                parts = path.split("/")
-                cur = tree
-                for p in parts:
-                    try:
-                        mode, sha = cur[p.encode()]
-                    except KeyError:
-                        raise FileNotFoundError(f"{path} not found")
-                    obj = self.repo[sha]
-                    if not isinstance(obj, Tree):
-                        raise NotADirectoryError(f"{path} is not a directory")
-                    cur = obj
-                tree = cur
-    
-            entries = []
-    
-            for name, mode, sha in tree.items():
-                name_str = name.decode()
-                obj = self.repo[sha]
-    
-                # Déterminer le type
-                if isinstance(obj, Tree):
-                    entry_type = "directory"
-                    size = None
-                elif isinstance(obj, Blob):
-                    if mode == 0o120000:
-                        entry_type = "symlink"
-                    else:
-                        entry_type = "file"
-                    size = len(obj.data)
-                else:
-                    entry_type = "unknown"
-                    size = None
-    
-                # Branches où l'entrée diffère
-                changed_in = []
-    
-                for ref in self.repo.refs.keys():
-                    if not ref.startswith(b"refs/heads/"):
-                        continue
-    
-                    other_branch = ref.decode().replace("refs/heads/", "")
-                    if other_branch == branch:
-                        continue
-    
-                    other_commit = self._get_head_commit(other_branch)
-                    other_tree = self.repo[other_commit.tree]
-    
-                    try:
-                        cur = other_tree
-                        if path:
-                            for p in path.split("/"):
-                                m2, s2 = cur[p.encode()]
-                                cur = self.repo[s2]
-    
-                        m2, s2 = cur[name]
-                        if s2 != sha:
-                            changed_in.append(other_branch)
-    
-                    except Exception:
-                        changed_in.append(other_branch)
-    
-                # Trouver le dernier commit ayant modifié cette entrée
-                last_commit_id = None
-                last_commit_time = None
-                last_commit_author = None
-                last_commit_message = None
-    
-                scan_commit = commit.id
-                while scan_commit:
-                    c = self.repo[scan_commit]
-                    t = self.repo[c.tree]
-    
-                    try:
-                        cur = t
-                        if path:
-                            for p in path.split("/"):
-                                m2, s2 = cur[p.encode()]
-                                cur = self.repo[s2]
-    
-                        m2, s2 = cur[name]
-    
-                        if s2 == sha:
-                            last_commit_id = c.id.hex()
-                            last_commit_time = c.commit_time
-                            last_commit_author = c.author.decode("utf-8", errors="ignore")
-                            last_commit_message = c.message.decode("utf-8", errors="ignore")
-                            break
-    
-                    except Exception:
-                        pass
-    
-                    if c.parents:
-                        scan_commit = c.parents[0]
-                    else:
-                        break
-    
-                entries.append({
-                    "name": name_str,
-                    "type": entry_type,
-                    "mode": mode,
-                    "sha": sha.hex(),
-                    "size": size,
-                    "last_commit_id": last_commit_id,
-                    "last_commit_time": last_commit_time,
-                    "last_commit_author": last_commit_author,
-                    "last_commit_message": last_commit_message,
-                    "changed_in_branches": changed_in,
-                })
-    
-            return {
-                "success": True,
-                "branch": branch,
-                "path": path or ".",
-                "entries": entries,
-                "error": None,
-            }
+            return SimpleGitResult(
+                True,
+                "File written and committed",
+                data={"file": filepath, "commit": sha},
+            )
     
         except Exception as e:
-            return {
-                "success": False,
-                "branch": branch,
-                "path": path or ".",
-                "entries": [],
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Write failed", error=str(e))
 
-    # ------------------------------------------------------------------
-    # DELETE
-    # ------------------------------------------------------------------
-    def delete(
-        self,
-        filepath: str,
-        branch: str = "main",
-        message: str = "delete",
-    ) -> Dict[str, Any]:
-        filepath = filepath.strip("/")
-        full_path = self.repo_path / filepath
-
+    def delete(self, filepath: str, message: str = "delete", author: str = "simplegit <local>") -> SimpleGitResult:
         try:
-            head_commit = self._get_head_commit(branch)
-            self._build_working_tree_index(head_commit)
+            filepath = filepath.strip("/")
+            full_path = (self.repo_path / filepath).resolve()
 
-            rel_path = filepath.encode("utf-8")
-
-            # Supprimer du système de fichiers
-            if full_path.exists():
+            existed = full_path.exists()
+            if existed:
                 full_path.unlink()
 
-            # Supprimer de l’index si présent
-            if rel_path in self.repo.index:
-                del self.repo.index[rel_path]
-                self.repo.index.write()
-            else:
-                return {
-                    "success": False,
-                    "deleted": False,
-                    "commit": None,
-                    "branch": branch,
-                    "file": filepath,
-                    "message": message,
-                    "error": "File not tracked",
-                }
+            commit_id = self._create_commit(message=message, author=author)
 
-            commit_id = self._create_commit(message=message, branch=branch)
-
-            return {
-                "success": True,
-                "deleted": True,
-                "commit": commit_id.hex(),
-                "branch": branch,
-                "file": filepath,
-                "message": message,
-                "error": None,
-            }
+            return SimpleGitResult(True,
+                                   "File deleted and committed" if existed and commit_id else "Nothing to delete",
+                                   data={"file": filepath, "commit": commit_id})
 
         except Exception as e:
-            return {
-                "success": False,
-                "deleted": False,
-                "commit": None,
-                "branch": branch,
-                "file": filepath,
-                "message": message,
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Delete failed", error=str(e))
 
-    # ------------------------------------------------------------------
-    # RENAME
-    # ------------------------------------------------------------------
-    def rename(
-        self,
-        old_path: str,
-        new_path: str,
-        branch: str = "main",
-        message: str = "rename",
-    ) -> Dict[str, Any]:
-        old_path = old_path.strip("/")
-        new_path = new_path.strip("/")
-
-        old_full = self.repo_path / old_path
-        new_full = self.repo_path / new_path
-
+    def read(self, filepath: str) -> SimpleGitResult:
         try:
-            if not old_full.exists():
-                return {
-                    "success": False,
-                    "renamed": False,
-                    "branch": branch,
-                    "old": old_path,
-                    "new": new_path,
-                    "commit": None,
-                    "message": message,
-                    "error": "Source file not found",
-                }
+            filepath = filepath.strip("/")
+            full_path = (self.repo_path / filepath).resolve()
 
-            head_commit = self._get_head_commit(branch)
-            self._build_working_tree_index(head_commit)
+            if not full_path.exists():
+                return SimpleGitResult(False, "File does not exist", error="not_found")
 
-            # Renommer dans le FS
-            new_full.parent.mkdir(parents=True, exist_ok=True)
-            old_full.rename(new_full)
-
-            # Mettre à jour l’index
-            old_rel = old_path.encode("utf-8")
-            new_rel = new_path.encode("utf-8")
-
-            if old_rel in self.repo.index:
-                entry = self.repo.index[old_rel]
-                del self.repo.index[old_rel]
-
-                # Adapter le path
-                self.repo.index[new_rel] = entry
-                self.repo.index.write()
-            else:
-                return {
-                    "success": False,
-                    "renamed": False,
-                    "branch": branch,
-                    "old": old_path,
-                    "new": new_path,
-                    "commit": None,
-                    "message": message,
-                    "error": "Source not tracked",
-                }
-
-            commit_id = self._create_commit(message=message, branch=branch)
-
-            return {
-                "success": True,
-                "renamed": True,
-                "branch": branch,
-                "old": old_path,
-                "new": new_path,
-                "commit": commit_id.hex(),
-                "message": message,
-                "error": None,
-            }
+            return SimpleGitResult(True, "File read",
+                                   data={"file": filepath, "content": full_path.read_text(encoding="utf-8")})
 
         except Exception as e:
-            return {
-                "success": False,
-                "renamed": False,
-                "branch": branch,
-                "old": old_path,
-                "new": new_path,
-                "commit": None,
-                "message": message,
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Read failed", error=str(e))
 
-    # ------------------------------------------------------------------
-    # BRANCHES
-    # ------------------------------------------------------------------
-    def branches(self) -> Dict[str, Any]:
+    def list(self, path: str = "") -> SimpleGitResult:
         try:
-            branches = [
-                ref.decode().replace("refs/heads/", "")
-                for ref in self.repo.refs.keys()
-                if ref.startswith(b"refs/heads/")
-            ]
-            return {"success": True, "branches": branches, "error": None}
+            base = (self.repo_path / path.strip("/")).resolve()
+            if not base.exists():
+                return SimpleGitResult(False, "Path does not exist", error="not_found")
+
+            files = []
+            for root, dirs, filenames in os.walk(base):
+                root_path = Path(root)
+                for name in filenames:
+                    rel = root_path.joinpath(name).relative_to(self.repo_path)
+                    files.append(str(rel))
+
+            return SimpleGitResult(True, "List OK", data={"files": sorted(files)})
+
         except Exception as e:
-            return {"success": False, "branches": [], "error": str(e)}
+            return SimpleGitResult(False, "List failed", error=str(e))
 
-    def create_branch(self, name: str, from_branch: str = "main") -> Dict[str, Any]:
+    def ls(self, path: str = "") -> SimpleGitResult:
+        return self.list(path)
+
+    # ------------------------------------------------------------
+    # Status / branches / history / diff / repair
+    # ------------------------------------------------------------
+
+    def status(self) -> SimpleGitResult:
         try:
-            src = f"refs/heads/{from_branch}".encode()
-            dst = f"refs/heads/{name}".encode()
+            with chdir(self.repo_path):
+                st = porcelain.status(str(self.repo_path))
 
-            if src not in self.repo.refs:
-                return {
-                    "success": False,
-                    "branch": name,
-                    "from": from_branch,
-                    "error": "Source branch does not exist",
-                }
+            return SimpleGitResult(True, "Status OK", data={
+                "staged": {
+                    "add": [p.decode() for p in st.staged["add"]],
+                    "modify": [p.decode() for p in st.staged["modify"]],
+                    "delete": [p.decode() for p in st.staged["delete"]],
+                },
+                "unstaged": [p.decode() for p in st.unstaged],
+                "untracked": [p.decode() for p in st.untracked],
+            })
 
-            self.repo.refs[dst] = self.repo.refs[src]
-            return {
-                "success": True,
-                "branch": name,
-                "from": from_branch,
-                "error": None,
-            }
         except Exception as e:
-            return {
-                "success": False,
-                "branch": name,
-                "from": from_branch,
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Status failed", error=str(e))
 
-    # ------------------------------------------------------------------
-    # LOGS (simple)
-    # ------------------------------------------------------------------
-    def logs(self, branch: str = "main", max_entries: int = 100) -> Dict[str, Any]:
+    def branches(self) -> SimpleGitResult:
         try:
-            ref = f"refs/heads/{branch}".encode()
-            if ref not in self.repo.refs:
-                return {"success": True, "logs": [], "branch": branch, "error": None}
+            with chdir(self.repo_path):
+                refs = self.repo.refs
+                head = refs.read_ref(b"HEAD")
+                current = head.decode().split("refs/heads/")[1] if head and head.startswith(b"refs/heads/") else None
 
-            commit_id = self.repo.refs[ref]
-            logs_list = []
-            count = 0
-            while commit_id and count < max_entries:
-                commit = self.repo[commit_id]
-                logs_list.append(
-                    {
-                        "id": commit.id.hex(),
-                        "message": commit.message.decode("utf-8", errors="ignore"),
-                    }
+                branches = sorted(
+                    ref.decode().split("refs/heads/")[1]
+                    for ref in refs.keys()
+                    if ref.startswith(b"refs/heads/")
                 )
-                if commit.parents:
-                    commit_id = commit.parents[0]
-                else:
-                    break
-                count += 1
 
-            return {"success": True, "logs": logs_list, "branch": branch, "error": None}
+            return SimpleGitResult(True, "Branches OK", data={"current": current, "branches": branches})
+
         except Exception as e:
-            return {"success": False, "logs": [], "branch": branch, "error": str(e)}
+            return SimpleGitResult(False, "Branches failed", error=str(e))
 
-    # ------------------------------------------------------------------
-    # STATUS (très simplifié)
-    # ------------------------------------------------------------------
-    def status(self) -> Dict[str, Any]:
-        # Ici on pourrait comparer FS vs index vs HEAD.
-        # Pour l’instant, on expose juste les chemins de l’index.
+    def history(self, filepath: Optional[str] = None, max_entries: int = 50) -> SimpleGitResult:
         try:
-            index_paths = [p.decode() for p in self.repo.index]
-            return {
-                "success": True,
-                "tracked": index_paths,
-                "error": None,
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "tracked": [],
-                "error": str(e),
-            }
+            with chdir(self.repo_path):
+                walker = self.repo.get_walker(max_entries=max_entries)
 
-    # ------------------------------------------------------------------
-    # PUSH / PULL via Dulwich (SSH ou HTTPS)
-    # ------------------------------------------------------------------
-    def push(self, remote_url: str, branch: str = "main") -> Dict[str, Any]:
-        """
-        Push la branche locale vers un dépôt distant (SSH ou HTTPS),
-        sans utiliser le binaire git.
-        """
+                commits = []
+                for entry in walker:
+                    commit: Commit = entry.commit
+                    sha = commit.id.decode()
+                    msg = commit.message.decode(errors="replace").strip()
+                    author = commit.author.decode(errors="replace")
+
+                    if filepath:
+                        try:
+                            tree = self.repo[commit.tree]
+                            tree.lookup_path(self.repo.__getitem__, filepath.encode())
+                        except KeyError:
+                            continue
+
+                    commits.append({"sha": sha, "author": author, "message": msg})
+
+            return SimpleGitResult(True, "History OK", data={"commits": commits})
+
+        except Exception as e:
+            return SimpleGitResult(False, "History failed", error=str(e))
+
+    def diff(self, rev1: str = "HEAD~1", rev2: str = "HEAD", filepath: Optional[str] = None) -> SimpleGitResult:
         try:
-            client, path = get_transport_and_path(remote_url)
+            args = [filepath] if filepath else None
 
-            ref_local = f"refs/heads/{branch}".encode()
-            if ref_local not in self.repo.refs:
-                return {
-                    "success": False,
-                    "branch": branch,
-                    "remote": remote_url,
-                    "error": "Local branch does not exist",
-                }
+            with chdir(self.repo_path):
+                diff_bytes = porcelain.diff_tree(
+                    str(self.repo_path),
+                    rev1.encode(),
+                    rev2.encode(),
+                    paths=args,
+                )
 
-            refs = self.repo.get_refs()
-            def determine_wants(remote_refs):
-                # On veut pousser ref_local -> même nom côté distant
-                return [refs[ref_local]]
+            return SimpleGitResult(True, "Diff OK",
+                                   data={"rev1": rev1, "rev2": rev2, "filepath": filepath,
+                                         "diff": diff_bytes.decode("utf-8", errors="replace")})
 
-            client.send_pack(path, determine_wants, self.repo.generate_pack_data)
-
-            return {
-                "success": True,
-                "branch": branch,
-                "remote": remote_url,
-                "error": None,
-            }
         except Exception as e:
-            return {
-                "success": False,
-                "branch": branch,
-                "remote": remote_url,
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Diff failed", error=str(e))
 
-    def pull(self, remote_url: str, branch: str = "main") -> Dict[str, Any]:
-        """
-        Pull depuis un dépôt distant (SSH ou HTTPS).
-        Ici on fait un fast-forward simple sur la branche.
-        À utiliser dans ta commande quotidienne (toutes les 24h).
-        """
+    def repair_repo(self) -> SimpleGitResult:
         try:
-            client, path = get_transport_and_path(remote_url)
-            remote_refs = client.fetch(path, self.repo)
+            with chdir(self.repo_path):
+                refs = self.repo.refs
+                head = refs.read_ref(b"HEAD")
 
-            local_ref = f"refs/heads/{branch}".encode()
-            remote_ref = f"refs/heads/{branch}".encode()
+                if head and head.startswith(b"ref:"):
+                    real_ref = head.split(b" ", 1)[1].strip()
+                    refs.set_symbolic_ref(b"HEAD", real_ref)
 
-            if remote_ref not in remote_refs:
-                return {
-                    "success": False,
-                    "branch": branch,
-                    "remote": remote_url,
-                    "error": "Remote branch does not exist",
-                }
+            return SimpleGitResult(True, "Repo repaired")
 
-            self.repo.refs[local_ref] = remote_refs[remote_ref]
-
-            return {
-                "success": True,
-                "branch": branch,
-                "remote": remote_url,
-                "error": None,
-            }
         except Exception as e:
-            return {
-                "success": False,
-                "branch": branch,
-                "remote": remote_url,
-                "error": str(e),
-            }
+            return SimpleGitResult(False, "Repair failed", error=str(e))
+
+    # ------------------------------------------------------------
+    # Branch management + push/pull
+    # ------------------------------------------------------------
+
+    def create_branch(self, name: str) -> SimpleGitResult:
+        try:
+            name = name.strip()
+            if not name:
+                return SimpleGitResult(False, "Invalid branch name")
+
+            ref = f"refs/heads/{name}".encode()
+
+            with chdir(self.repo_path):
+                refs = self.repo.refs
+
+                if ref in refs:
+                    return SimpleGitResult(False, "Branch already exists", data={"branch": name})
+
+                head_commit = self._get_head_commit()
+                if not head_commit:
+                    return SimpleGitResult(False, "No commit exists yet", error="no_head")
+
+                refs[ref] = head_commit.id
+
+            return SimpleGitResult(True, "Branch created", data={"branch": name})
+
+        except Exception as e:
+            return SimpleGitResult(False, "Create branch failed", error=str(e))
+
+    def checkout(self, branch: str) -> SimpleGitResult:
+        try:
+            branch = branch.strip()
+            ref = f"refs/heads/{branch}".encode()
+
+            with chdir(self.repo_path):
+                if ref not in self.repo.refs:
+                    return SimpleGitResult(False, "Branch does not exist", data={"branch": branch})
+
+                self.repo.refs.set_symbolic_ref(b"HEAD", ref)
+
+            return SimpleGitResult(True, "Checked out branch", data={"branch": branch})
+
+        except Exception as e:
+            return SimpleGitResult(False, "Checkout failed", error=str(e))
+
+    def move(self, src: str, dst: str, message: str = "move file",
+             author: str = "simplegit <local>") -> SimpleGitResult:
+
+        try:
+            src = src.strip("/")
+            dst = dst.strip("/")
+
+            src_path = (self.repo_path / src).resolve()
+            dst_path = (self.repo_path / dst).resolve()
+
+            if not src_path.exists():
+                return SimpleGitResult(False, "Source file does not exist", error="not_found")
+
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            src_path.rename(dst_path)
+
+            commit_id = self._create_commit(message=message, author=author)
+
+            return SimpleGitResult(True,
+                                   "File moved and committed" if commit_id else "File moved (no commit)",
+                                   data={"src": src, "dst": dst, "commit": commit_id})
+
+        except Exception as e:
+            return SimpleGitResult(False, "Move failed", error=str(e))
+
+    def push(self, remote: str = "origin", branch: Optional[str] = None) -> SimpleGitResult:
+        try:
+            branch = branch or self._get_head_branch()
+            if not branch:
+                return SimpleGitResult(False, "No branch to push", error="no_branch")
+
+            with chdir(self.repo_path):
+                porcelain.push(
+                    str(self.repo_path),
+                    remote_location=remote,
+                    refspecs=[f"refs/heads/{branch}".encode()],
+                )
+
+            return SimpleGitResult(True, "Push OK", data={"remote": remote, "branch": branch})
+
+        except Exception as e:
+            return SimpleGitResult(False, "Push failed", error=str(e))
+
+    def pull(self, remote: str = "origin", branch: Optional[str] = None) -> SimpleGitResult:
+        try:
+            branch = branch or self._get_head_branch()
+            if not branch:
+                return SimpleGitResult(False, "No branch to pull into", error="no_branch")
+
+            with chdir(self.repo_path):
+                porcelain.pull(
+                    str(self.repo_path),
+                    remote_location=remote,
+                    refspecs=[f"refs/heads/{branch}".encode()],
+                )
+
+            return SimpleGitResult(True, "Pull OK", data={"remote": remote, "branch": branch})
+
+        except Exception as e:
+            return SimpleGitResult(False, "Pull failed", error=str(e))
 
