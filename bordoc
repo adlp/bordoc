@@ -316,10 +316,12 @@ def form_accueil(varSession,params={}):
     if not len(path):
         path="accueil.md"
     ret=repoGit.read(path)
-    if ret['success']:
+    if ret.success:
         print(f'Charging {path}')
         print(ret)
-        mdd=ret.get('content','')
+        mdd=ret.data.get('content','')
+#bordoc       | SimpleGitResult(success=True, message='File read', error=None, data={'file': 'accueil.md', 'content': '---\nmarp: true\npaginate: true\n---\n\n# Bienvenue\n\nVoici une présentation **Marp** servie via FastAPI proxy.\n\n---\n\n## Deuxième slide\n\n- Point 1\n- Point 27\n\n'})
+
     else:
         print(ret)
 
@@ -431,9 +433,9 @@ async def api_read(varSession,params={}):
     path=params.get("path","")
     if len(path):
         ret=repoGit.read(path)
-        if ret['success']:
+        if ret.success:
             print(f'Charging {path}')
-            mdd=ret.get('content','')
+            mdd=ret.data.get('content','')
 
     return({ 'content':mdd})
 
@@ -452,7 +454,8 @@ async def api_save(varSession,params={}):
     print(f"fichier : { data.get('filename') }")
     print(data)
     ret=repoGit.write(filepath=data.get('filename'),content=data.get('markdown'))
-    print(repoGit.branches())
+    print(ret)
+    #print(repoGit.branches())
     return(ret)
 
 app = Zapiz(
