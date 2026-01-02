@@ -191,13 +191,15 @@ class SimpleGit:
             target_branch = branch or self.default_branch
             ref = f"refs/heads/{target_branch}".encode()
     
+            repo_path = str(self.repo_path)
+    
             # ------------------------------------------------------------
-            # 1. La branche existe-t-elle ?
+            # 1. Vérifier si la branche existe
             # ------------------------------------------------------------
             branch_exists = ref in self.repo.refs
     
             # ------------------------------------------------------------
-            # 2. Si la branche n'existe pas → premier commit de cette branche
+            # 2. CAS : premier commit de cette branche
             # ------------------------------------------------------------
             if not branch_exists:
                 # Écrire le fichier
@@ -205,19 +207,21 @@ class SimpleGit:
                 full_path.write_text(content, encoding="utf-8")
     
                 with chdir(self.repo_path):
-                    # Stage
-                    porcelain.add(str(self.repo_path), paths=[filepath])
+                    # git add <filepath>
+                    porcelain.add(repo_path, paths=[filepath])
     
-                    # Commit initial
+                    # git commit -m "Initial commit"
                     commit_id = porcelain.commit(
-                        str(self.repo_path),
+                        repo_path,
                         message="Initial commit",
                         author=author,
                         committer=author,
                     )
     
-                    # Créer la branche
+                    # SHA propre
                     sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+    
+                    # Créer la branche proprement
                     self.repo.refs[ref] = sha.encode()
     
                     # HEAD → branche
@@ -243,17 +247,26 @@ class SimpleGit:
             if old_content == content:
                 return SimpleGitResult(True, "No changes", data={"file": filepath})
     
+            # Écrire le fichier
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content, encoding="utf-8")
     
-            commit_id = porcelain.commit(
-                str(self.repo_path),
-                message=message,
-                author=author,
-                committer=author,
-            )
+            with chdir(self.repo_path):
+                # git add <filepath>
+                porcelain.add(repo_path, paths=[filepath])
     
-            sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+                # git commit -m "<message>"
+                commit_id = porcelain.commit(
+                    repo_path,
+                    message=message,
+                    author=author,
+                    committer=author,
+                )
+    
+                sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+    
+                # Mettre à jour la branche
+                self.repo.refs[ref] = sha.encode()
     
             return SimpleGitResult(
                 True,
@@ -263,6 +276,7 @@ class SimpleGit:
     
         except Exception as e:
             return SimpleGitResult(False, "Write failed", error=str(e))
+    
 
     def delete(self, filepath: str, message: str = "delete", author: str = "simplegit <local>") -> SimpleGitResult:
         try:
