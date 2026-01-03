@@ -180,7 +180,7 @@ class SimpleGit:
         self,
         filepath: str,
         content: str,
-        branch: Optional[str] = "main",
+        branch: Optional[str] = None,
         message: str = "update",
         author: str = "simplegit <local>",
     ) -> SimpleGitResult:
@@ -207,10 +207,13 @@ class SimpleGit:
                 full_path.write_text(content, encoding="utf-8")
     
                 with chdir(self.repo_path):
+                    # HEAD → nouvelle branche
+                    self.repo.refs.set_symbolic_ref(b"HEAD", ref)
+    
                     # git add <filepath>
                     porcelain.add(repo_path, paths=[filepath])
     
-                    # git commit -m "Initial commit"
+                    # git commit
                     commit_id = porcelain.commit(
                         repo_path,
                         message="Initial commit",
@@ -218,14 +221,10 @@ class SimpleGit:
                         committer=author,
                     )
     
-                    # SHA propre
                     sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
     
                     # Créer la branche proprement
                     self.repo.refs[ref] = sha.encode()
-    
-                    # HEAD → branche
-                    self.repo.refs.set_symbolic_ref(b"HEAD", ref)
     
                 return SimpleGitResult(
                     True,
@@ -255,7 +254,7 @@ class SimpleGit:
                 # git add <filepath>
                 porcelain.add(repo_path, paths=[filepath])
     
-                # git commit -m "<message>"
+                # git commit
                 commit_id = porcelain.commit(
                     repo_path,
                     message=message,
