@@ -39,7 +39,13 @@ class TrueGit:
             
             # Créer un commit initial si demandé
             if initial_commit:
-                self._create_initial_commit(initial_message, initial_author)
+                # Utiliser la fonction commit() existante
+                self.commit(message=initial_message, author=initial_author)
+            
+            # Créer la branche après le commit (si un commit a été fait)
+            if self._get_head_commit():
+                # La branche existe déjà via le commit, pas besoin de la recréer
+                pass
         else:
             # Le dépôt existe déjà, charger la branche courante
             self._load_current_branch()
