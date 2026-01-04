@@ -252,6 +252,30 @@ class TrueGit:
         # Écrire le fichier
         index_file.write_bytes(index_content + index_sha)
     
+    def _rebuild_index_from_tree(self, tree_sha: str, prefix: str = ""):
+        """Reconstruit l'index à partir d'un tree après un commit."""
+        self.index.clear()
+        
+        obj_type, content = self._read_object(tree_sha)
+        if obj_type != "tree":
+            return
+        
+        entries = self._parse_tree(content)
+        
+        for mode, name, sha1 in entries:
+            path = f"{prefix}/{name}" if prefix else name
+            
+            if mode == "40000":  # Répertoire
+                self._rebuild_index_from_tree(sha1, path)
+            else:  # Fichier
+                self.index[path] = {
+                    'sha': sha1,
+                    'mode': mode
+                }
+        
+        # Écrire l'index mis à jour
+        self._write_index()
+    
     def add(self, *paths: str):
         """Ajoute des fichiers à l'index (staging area)."""
         for path_str in paths:
@@ -311,9 +335,9 @@ class TrueGit:
         branch_file.parent.mkdir(parents=True, exist_ok=True)
         branch_file.write_text(f"{commit_sha}\n")
         
-        # Nettoyer l'index après le commit
-        self.index.clear()
-        self._write_index()  # Supprimer le fichier index
+        # Après le commit, reconstruire l'index à partir du tree commité
+        # pour que Git voit l'état correct
+        self._rebuild_index_from_tree(tree_sha)
         
         return commit_sha
     
