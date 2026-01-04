@@ -23,10 +23,10 @@ def chdir(path: Path):
 class TrueGit:
     """
     Robust minimal wrapper around Dulwich for tests.
-    Use debug=True to see internal debug prints.
+    Use debug=True to enable internal debug prints.
     """
 
-    def __init__(self, repo_path: str, default_branch: str = "main", debug: bool = False):
+    def __init__(self, repo_path: str, default_branch: str = "main", debug: bool = True):
         self.repo_path = Path(repo_path).resolve()
         self.default_branch = default_branch
         self.debug = debug
@@ -86,21 +86,24 @@ class TrueGit:
         if self.debug:
             print("DEBUG:", *args)
 
+    # -------------------------
+    # Ref resolution
+    # -------------------------
     def _resolve_ref_to_sha(self, ref_name: bytes) -> Optional[bytes]:
         """
-        Résout une ref (ex: b'refs/heads/feature') en SHA si possible.
-        Suit les symbolic refs, vérifie loose refs et packed-refs.
-        Retourne None si aucune SHA trouvée.
+        Resolve a ref (b'refs/heads/x') to a SHA if possible.
+        Follows symbolic refs, checks loose refs and packed-refs.
+        Returns None if no SHA found.
         """
-        # 1) tentative directe via dulwich cache
+        # 1) direct via dulwich
         try:
             sha = self.repo.refs[ref_name]
             if sha:
                 return sha
         except Exception:
             pass
-    
-        # 2) si c'est une symbolic ref, read_ref renvoie la cible
+
+        # 2) follow symbolic ref if possible
         try:
             target = self.repo.refs.read_ref(ref_name)
             try:
@@ -111,7 +114,7 @@ class TrueGit:
                 pass
         except Exception:
             pass
-    
+
         # 3) loose ref file fallback
         try:
             parts = ref_name.decode().split("/")
@@ -122,7 +125,7 @@ class TrueGit:
                     return txt.encode()
         except Exception:
             pass
-    
+
         # 4) packed-refs fallback (simple parse)
         packed = self.repo_path / ".git" / "packed-refs"
         if packed.exists():
@@ -133,9 +136,9 @@ class TrueGit:
                     sha_hex, name = line.split(" ", 1)
                     if name.strip() == ref_name.decode():
                         return sha_hex.encode()
-    
+
         return None
-    
+
     # -------------------------
     # Branch / refs utilities
     # -------------------------
@@ -190,56 +193,44 @@ class TrueGit:
         """
         Create a branch from the commit pointed by HEAD.
         If HEAD points to a commit, branch -> that SHA.
-        If HEAD is unborn, create a symbolic ref pointing to the same ref as HEAD (normalized).
-        Always reload self.repo after modification.
+        If HEAD is unborn, create a symbolic ref pointing to the same ref as HEAD.
+        Do not create empty ref files. Reload Repo after modification.
         """
         ref = f"refs/heads/{branch}".encode()
-    
-        # Try to read the ref that HEAD points to (may return b'ref: refs/heads/main' or b'refs/heads/main')
         try:
             raw_head_ref = self.repo.refs.read_ref(b"HEAD")
         except Exception:
             raw_head_ref = None
-    
-        # Normalize: if raw_head_ref starts with b"ref:" strip it
+
         head_ref = None
         if raw_head_ref is not None:
             if isinstance(raw_head_ref, bytes) and raw_head_ref.startswith(b"ref:"):
-                # e.g. b"ref: refs/heads/main" -> b"refs/heads/main"
                 head_ref = raw_head_ref.split(b":", 1)[1].strip()
             else:
                 head_ref = raw_head_ref
-    
-        # Try to resolve a SHA for the head_ref
+
         head_sha = None
         if head_ref is not None:
-            try:
-                head_sha = self.repo.refs[head_ref]
-            except Exception:
-                head_sha = None
-    
+            head_sha = self._resolve_ref_to_sha(head_ref)
+
         if head_sha:
-            # HEAD points to a commit SHA: create branch pointing to that SHA
             self.repo.refs[ref] = head_sha
             self._dbg("create_branch:", branch, "->", head_sha)
         else:
-            # HEAD unborn: create a symbolic ref to the same ref as HEAD if we have a normalized head_ref
             if head_ref is not None:
                 try:
                     self.repo.refs.set_symbolic_ref(ref, head_ref)
                     self._dbg("create_branch symbolic:", branch, "->", head_ref)
                 except Exception as e:
-                    # fallback: do not create an empty ref file; leave branch absent
                     self._dbg("create_branch: failed to set_symbolic_ref, not creating branch file:", e)
                     return
             else:
-                # No head_ref readable: do nothing (do not create empty ref)
                 self._dbg("create_branch: no head_ref, not creating branch")
                 return
-    
+
         # reload repo so Dulwich sees the new ref immediately
         self.repo = Repo(str(self.repo_path))
-    
+
     def delete_branch(self, branch: str):
         ref = f"refs/heads/{branch}".encode()
         if ref in self.repo.refs:
@@ -277,6 +268,11 @@ class TrueGit:
             full_path.unlink()
         with chdir(self.repo_path):
             porcelain.add(".", paths=[filepath])
+        # ensure index consistent
+        try:
+            self.ensure_clean_worktree(remove_untracked=False)
+        except Exception:
+            pass
 
     def commit(self, message: str, author: str = "truegit <local>") -> str:
         """
@@ -294,6 +290,11 @@ class TrueGit:
         self.repo = Repo(str(self.repo_path))
         sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
         self._dbg("commit:", sha, "message:", message)
+        # ensure index matches HEAD
+        try:
+            self.ensure_clean_worktree(remove_untracked=False)
+        except Exception:
+            pass
         return sha
 
     def write(self, filepath: str, content: str, branch: Optional[str] = None, message: str = "update", author: str = "truegit <local>") -> str:
@@ -330,7 +331,110 @@ class TrueGit:
         self.repo = Repo(str(self.repo_path))
         sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
         self._dbg("write commit:", sha, "file:", filepath)
+        # ensure index matches HEAD
+        try:
+            self.ensure_clean_worktree(remove_untracked=False)
+        except Exception:
+            pass
         return sha
+
+    # -------------------------
+    # Rebuild index and clean worktree
+    # -------------------------
+    def ensure_clean_worktree(self, remove_untracked: bool = False) -> bool:
+        """
+        Rebuild the index from HEAD tree and optionally remove untracked files.
+        Pure Dulwich implementation (no git CLI). Returns True if status is clean.
+        """
+        # reload repo
+        self.repo = Repo(str(self.repo_path))
+    
+        # resolve HEAD commit SHA
+        try:
+            head_ref = self.repo.refs.read_ref(b"HEAD")
+            head_sha = self._resolve_ref_to_sha(head_ref) if head_ref else None
+        except Exception:
+            head_sha = None
+    
+        # Build a map of expected index entries from HEAD tree: {path_bytes: (mode, sha)}
+        expected_map: Dict[bytes, tuple] = {}
+        if head_sha:
+            commit = self.repo[head_sha]
+            tree = self.repo[commit.tree]
+    
+            def collect_tree(tree_obj, base=b""):
+                for name in tree_obj:
+                    mode, sha = tree_obj[name]
+                    obj = self.repo[sha]
+                    full = name if base == b"" else base + b"/" + name
+                    if obj.type_name == b"tree":
+                        collect_tree(obj, full)
+                    else:
+                        expected_map[full] = (mode, sha)
+    
+            collect_tree(tree)
+    
+        # Rebuild index from expected_map (this clears any staged add/delete/modify)
+        idx = self.repo.open_index()
+        idx.clear()
+        for path_bytes, (mode, sha) in expected_map.items():
+            entry = IndexEntry(
+                ctime=0, mtime=0, dev=0, ino=0,
+                mode=mode,
+                uid=0, gid=0,
+                size=len(self.repo[sha].data),
+                sha=sha,
+                flags=0
+            )
+            idx[path_bytes] = entry
+        idx.write()
+    
+        # Reload repo to ensure Dulwich internal state is consistent
+        self.repo = Repo(str(self.repo_path))
+    
+        # Optionally remove untracked files using the expected_map computed above
+        if remove_untracked:
+            expected_set = {p.decode() if isinstance(p, bytes) else p for p in expected_map.keys()}
+            for root, dirs, files in os.walk(self.repo_path, topdown=False):
+                root_path = Path(root)
+                if ".git" in root_path.parts:
+                    continue
+                for f in files:
+                    rel = os.path.relpath(root_path / f, self.repo_path).replace(os.sep, "/")
+                    if rel not in expected_set:
+                        try:
+                            (root_path / f).unlink()
+                            self._dbg("removed untracked file", rel)
+                        except Exception as e:
+                            self._dbg("failed to remove untracked", rel, ":", e)
+            # reload repo and index after removals
+            self.repo = Repo(str(self.repo_path))
+            idx = self.repo.open_index()
+    
+        # Compute status via porcelain.status and interpret GitStatus attributes
+        st = porcelain.status(str(self.repo_path))
+        self._dbg("ensure_clean_worktree status:", st)
+    
+        staged = getattr(st, "staged", {})
+        unstaged = getattr(st, "unstaged", {})
+        untracked = getattr(st, "untracked", [])
+    
+        # staged may be dict with keys 'add','delete','modify'
+        has_staged = False
+        if isinstance(staged, dict):
+            for v in staged.values():
+                if v:
+                    has_staged = True
+                    break
+        else:
+            has_staged = bool(staged)
+    
+        has_unstaged = bool(unstaged)
+        has_untracked = bool(untracked)
+    
+        clean = not (has_staged or has_unstaged or has_untracked)
+        return clean
+    
 
     # -------------------------
     # Robust checkout
@@ -360,7 +464,6 @@ class TrueGit:
                     packed = self.repo_path / ".git" / "packed-refs"
                     if not packed.exists():
                         raise ValueError(f"La branche {branch} n'existe pas")
-                    # If packed exists but branch not found, raise (parsing packed-refs optional)
                     raise ValueError(f"La branche {branch} n'existe pas")
 
         # 0) HEAD -> branch (first) and reload repo to invalidate Dulwich cache
@@ -368,21 +471,14 @@ class TrueGit:
         head_file.write_text(f"ref: refs/heads/{branch}\n", encoding="utf-8")
         self.repo = Repo(str(self.repo_path))
 
-#        # 1) Read commit and tree (handle unborn branch)
-#        commit_sha = None
-#        try:
-#            commit_sha = self.repo.refs[ref]
-#        except KeyError:
-#            commit_sha = None
-# après self.repo = Repo(str(self.repo_path))
+        # 1) Read commit and tree (handle unborn branch)
         commit_sha = self._resolve_ref_to_sha(ref)
         if commit_sha is None:
             tree = None
-            expected = set()
+            expected: Set[str] = set()
         else:
             commit = self.repo[commit_sha]
             tree = self.repo[commit.tree]
-            # ensuite collect_tree_paths comme avant
 
             # collect expected file paths
             def collect_tree_paths(tree_obj, base="") -> Set[str]:
@@ -469,30 +565,11 @@ class TrueGit:
 
             checkout_tree(tree, self.repo_path)
 
-        # 5) Rebuild the index from the tree
-        index = self.repo.open_index()
-        index.clear()
-
-        def add_tree_to_index(tree_obj, base=b""):
-            for name in tree_obj:
-                mode, sha = tree_obj[name]
-                obj = self.repo[sha]
-                full = name if base == b"" else base + b"/" + name
-                if obj.type_name == b"tree":
-                    add_tree_to_index(obj, full)
-                else:
-                    entry = IndexEntry(
-                        0, 0, 0, 0, mode,
-                        0, 0,
-                        len(obj.data),
-                        sha,
-                        0
-                    )
-                    index[full] = entry
-
-        if tree is not None:
-            add_tree_to_index(tree)
-        index.write()
+        # 5) Rebuild the index from the tree and ensure clean state
+        try:
+            self.ensure_clean_worktree(remove_untracked=True)
+        except Exception as e:
+            self._dbg("ensure_clean_worktree failed:", e)
 
         # 6) Final verification: no unexpected files remain
         remaining = []
