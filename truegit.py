@@ -38,7 +38,7 @@ class TrueGit:
         if head_file.exists():
             content = head_file.read_text().strip()
             if content.startswith("ref: refs/heads/"):
-                self.branch = content.replace("ref: refs/heads/", "")
+                self._current_branch = content.replace("ref: refs/heads/", "")
         
     def _init_repository(self):
         """Initialise la structure du dépôt Git."""
@@ -54,7 +54,7 @@ class TrueGit:
             d.mkdir(parents=True, exist_ok=True)
         
         head_file = self.git_dir / "HEAD"
-        head_file.write_text(f"ref: refs/heads/{self.branch}\n")
+        head_file.write_text(f"ref: refs/heads/{self._current_branch}\n")
         
         config_file = self.git_dir / "config"
         config_file.write_text("[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n")
@@ -142,10 +142,14 @@ class TrueGit:
     
     def _get_head_commit(self) -> Optional[str]:
         """Récupère le SHA-1 du commit HEAD."""
-        branch_file = self.git_dir / "refs" / "heads" / self.branch
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
         if not branch_file.exists():
             return None
         return branch_file.read_text().strip()
+    
+    def current_branch(self) -> str:
+        """Retourne la branche courante."""
+        return self._current_branch
     
     def _parse_commit(self, commit_sha: str) -> Dict:
         """Parse un commit et retourne ses informations."""
@@ -218,7 +222,7 @@ class TrueGit:
         
         commit_sha = self._hash_object(commit_content.encode(), "commit")
         
-        branch_file = self.git_dir / "refs" / "heads" / self.branch
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
         branch_file.parent.mkdir(parents=True, exist_ok=True)
         branch_file.write_text(f"{commit_sha}\n")
         
@@ -242,29 +246,29 @@ class TrueGit:
         
         return commits
     
-    def branch(self, name: Optional[str] = None, delete: Optional[str] = None) -> List[str]:
-        """Liste, crée ou supprime des branches."""
+    def create_branch(self, name: str):
+        """Crée une nouvelle branche."""
+        head_commit = self._get_head_commit()
+        if not head_commit:
+            raise ValueError("Impossible de créer une branche sans commit")
+        branch_file = self.git_dir / "refs" / "heads" / name
+        branch_file.parent.mkdir(parents=True, exist_ok=True)
+        branch_file.write_text(f"{head_commit}\n")
+    
+    def delete_branch(self, name: str):
+        """Supprime une branche."""
+        branch_file = self.git_dir / "refs" / "heads" / name
+        if branch_file.exists():
+            branch_file.unlink()
+    
+    def list_branches(self) -> List[str]:
+        """Liste toutes les branches."""
         branches_dir = self.git_dir / "refs" / "heads"
-        
-        if delete:
-            branch_file = branches_dir / delete
-            if branch_file.exists():
-                branch_file.unlink()
-            return []
-        
-        if name:
-            head_commit = self._get_head_commit()
-            if not head_commit:
-                raise ValueError("Impossible de créer une branche sans commit")
-            branch_file = branches_dir / name
-            branch_file.write_text(f"{head_commit}\n")
-            return [name]
-        
         branches = []
         for branch_file in branches_dir.rglob('*'):
             if branch_file.is_file():
                 branch_name = str(branch_file.relative_to(branches_dir))
-                prefix = "* " if branch_name == self.branch else "  "
+                prefix = "* " if branch_name == self._current_branch else "  "
                 branches.append(f"{prefix}{branch_name}")
         return sorted(branches)
     
@@ -274,7 +278,7 @@ class TrueGit:
         if not branch_file.exists():
             raise ValueError(f"La branche {branch_name} n'existe pas")
         
-        self.branch = branch_name
+        self._current_branch = branch_name
         head_file = self.git_dir / "HEAD"
         head_file.write_text(f"ref: refs/heads/{branch_name}\n")
         
@@ -479,7 +483,7 @@ class TrueGit:
         
         merge_sha = self._hash_object(commit_content.encode(), "commit")
         
-        branch_file = self.git_dir / "refs" / "heads" / self.branch
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
         branch_file.write_text(f"{merge_sha}\n")
         
         return merge_sha
@@ -537,7 +541,7 @@ class TrueGit:
                         untracked.append(rel_path)
         
         return {
-            "branch": self.branch,
+            "branch": self._current_branch,
             "head_commit": head_commit,
             "modified": modified,
             "untracked": untracked
@@ -589,7 +593,7 @@ class TrueGit:
     def pull(self, remote_path: str, branch_name: Optional[str] = None):
         """Pull simplifié."""
         if branch_name is None:
-            branch_name = self.branch
+            branch_name = self._current_branch
         
         self.fetch(remote_path)
         remote_ref = self.git_dir / "refs" / "remotes" / "origin" / branch_name
@@ -601,7 +605,7 @@ class TrueGit:
     def push(self, remote_path: str, branch_name: Optional[str] = None):
         """Push simplifié vers un dépôt local."""
         if branch_name is None:
-            branch_name = self.branch
+            branch_name = self._current_branch
         
         remote = Path(remote_path)
         local_branch = self.git_dir / "refs" / "heads" / branch_name
