@@ -31,6 +31,7 @@ class TrueGit:
         if not self.git_dir.exists():
             self._init_repository()
         else:
+            # Le dépôt existe déjà, charger la branche courante
             self._load_current_branch()
     
     def _load_current_branch(self):
@@ -184,8 +185,6 @@ class TrueGit:
     
     def _write_index(self):
         """Écrit un fichier index Git (format binaire simplifié version 2)."""
-        import struct
-        
         index_file = self.git_dir / "index"
         
         # Si l'index est vide, supprimer le fichier
@@ -205,8 +204,8 @@ class TrueGit:
                 ctime_ns = int((stat_info.st_ctime - ctime_s) * 1000000000)
                 mtime_s = int(stat_info.st_mtime)
                 mtime_ns = int((stat_info.st_mtime - mtime_s) * 1000000000)
-                dev = stat_info.st_dev
-                ino = stat_info.st_ino
+                dev = stat_info.st_dev & 0xFFFFFFFF  # Limiter à 32 bits
+                ino = stat_info.st_ino & 0xFFFFFFFF  # Limiter à 32 bits
                 mode = int(data['mode'], 8) if isinstance(data, dict) else 0o100644
                 uid = stat_info.st_uid
                 gid = stat_info.st_gid
@@ -215,7 +214,7 @@ class TrueGit:
                 # Valeurs par défaut si le fichier n'existe pas
                 ctime_s = ctime_ns = mtime_s = mtime_ns = 0
                 dev = ino = uid = gid = size = 0
-                mode = 0o100644
+                mode = int(data.get('mode', '100644'), 8) if isinstance(data, dict) else 0o100644
             
             sha_bytes = bytes.fromhex(data['sha'] if isinstance(data, dict) else data)
             path_bytes = path.encode('utf-8')
@@ -223,17 +222,32 @@ class TrueGit:
             # Flags: assume-valid (1 bit) + extended (1 bit) + stage (2 bits) + name length (12 bits)
             flags = min(len(path_bytes), 0xFFF)
             
-            # Construire l'entrée
-            entry = struct.pack('>IIIIIIIIII20sH',
+            # Construire l'entrée: 10 uint32 (40 bytes) + SHA-1 (20 bytes) + flags (2 bytes)
+            entry = struct.pack('>10I',
                 ctime_s, ctime_ns,
                 mtime_s, mtime_ns,
-                dev, ino, mode, uid, gid, size,
-                sha_bytes, flags
+                dev, ino, mode, uid, gid, size
             )
+            entry += sha_bytes  # Ajouter les 20 bytes du SHA
+            entry += struct.pack('>H', flags)  # Ajouter les flags (2 bytes)
+            
+            # Total jusqu'ici: 62 bytes
+            
+            # Ajouter le nom du fichier (sans NUL de terminaison)
             entry += path_bytes
             
-            # Padding pour aligner sur 8 octets
-            padlen = (8 - ((62 + len(path_bytes)) % 8)) % 8
+            # Padding: aligner sur 8 octets
+            # La longueur totale doit être un multiple de 8
+            # On a: 62 (header) + len(path) bytes
+            # On doit ajouter assez de NUL bytes pour atteindre le prochain multiple de 8
+            # Il doit y avoir au moins 1 NUL byte après le nom
+            total_len = 62 + len(path_bytes)
+            # Calculer combien de NUL bytes ajouter (minimum 1, maximum 8)
+            # pour que (62 + len(path) + padding) % 8 == 0
+            padlen = 1
+            while (total_len + padlen) % 8 != 0:
+                padlen += 1
+            
             entry += b'\x00' * padlen
             
             entries.append(entry)
