@@ -4,6 +4,12 @@ import sys
 import os
 import httpx
 
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+
+
 # Chemin absolu vers le dossier 'kernel'
 kernel_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'zapiz'))
 
@@ -106,6 +112,82 @@ if 'SENTRY_DSN' in cfg.keys():
         send_default_pii=True,
         )
 
+def ensure_pip_installed_requirements(
+    requirements_path: str = "/srv/bordoc/requirements.txt",
+    target_dir: str = "/srv/pip-install",
+    marker_path: str = "/tmp/requiered",
+    timeout: Optional[int] = None,
+) -> bool:
+    """
+    Si le fichier `marker_path` n'existe pas, exécute:
+      python -m pip install -r requirements_path --target target_dir
+    Si la commande réussit, crée atomiquement le fichier `marker_path`.
+    Retourne True si tout s'est bien passé (marker présent ou créé), False sinon.
+    Affiche des messages d'erreur en cas d'échec.
+    """
+    req = Path(requirements_path)
+    target = Path(target_dir)
+    marker = Path(marker_path)
+
+    # Si le marqueur existe déjà, rien à faire
+    if marker.exists():
+        print(f"Marker exists: {marker} — nothing to do.")
+        return True
+
+    # Vérifications préalables
+    if not req.exists():
+        print(f"Erreur: requirements file not found: {req}")
+        return False
+    if not req.is_file():
+        print(f"Erreur: requirements path is not a file: {req}")
+        return False
+
+    # S'assurer que le répertoire cible existe
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"Erreur: impossible de créer le répertoire cible {target}: {e}")
+        return False
+
+    # Construire la commande pip en utilisant l'interpréteur Python courant
+    cmd = [sys.executable, "-m", "pip", "install", "-r", str(req), "--target", str(target)]
+    print("Exécution de:", " ".join(cmd))
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        print("Erreur: la commande pip a expiré (timeout).")
+        return False
+    except OSError as e:
+        print(f"Erreur: impossible d'exécuter pip: {e}")
+        return False
+
+    # Afficher la sortie pour diagnostic si échec
+    if proc.returncode != 0:
+        print("pip a échoué avec le code", proc.returncode)
+        if proc.stdout:
+            print("stdout:", proc.stdout)
+        if proc.stderr:
+            print("stderr:", proc.stderr)
+        return False
+
+    # Si la commande a réussi, créer le fichier marker de façon atomique
+    try:
+        tmp_marker = marker.with_suffix(".tmp")
+        tmp_marker.write_text("installed\n", encoding="utf-8")
+        tmp_marker.replace(marker)  # atomique sur la plupart des systèmes
+        print(f"Succès: marker créé {marker}")
+        return True
+    except Exception as e:
+        print(f"Erreur: impossible de créer le marker {marker}: {e}")
+        return False
 
 
 #def form_newHome(varSession,params={}):
@@ -382,8 +464,11 @@ def form_accueil(varSession,params={}):
 async def liste_fichiers(varSession,params={}):
     #files = [f for f in os.listdir("/slides") if f.endswith(".md")]
     ret=repoGit.ls("")
+    # [{'name': 'acc', 'type': 'directory', 'path': 'acc', 'last_commit_sha': 'afc49ea2aef9abaa7b97d0e7537442f6aa745b83', 'last_commit_date': 1767473138, 'last_commit_author': 'SimpleGit <None> 1767473138 +0000', 'last_commit_message': 'Init repo'}, {'name': 'accueial.md', 'type': 'file', 'path': 'accueial.md', 'last_commit_sha': 'afc49ea2aef9abaa7b97d0e7537442f6aa745b83', 'last_commit_date': 1767473138, 'last_commit_author': 'SimpleGit <None> 1767473138 +0000', 'last_commit_message': 'Init repo'}, {'name': 'accueil.md', 'type': 'file', 'path': 'accueil.md', 'last_commit_sha': 'afc49ea2aef9abaa7b97d0e7537442f6aa745b83', 'last_commit_date': 1767473138, 'last_commit_author': 'SimpleGit <None> 1767473138 +0000', 'last_commit_message': 'Init repo'}]
+
+    print(ret)
     files=[]
-    for f in repoGit.ls("").get('entries',[]):
+    for f in repoGit.ls(""):
         name=f.get('name','')
         if f.get('type','') == 'file' and name.endswith(".md"):
             files.append(name)
@@ -396,7 +481,7 @@ async def form_editor(varSession,params={}):
     path=params.get("path","")
     # Contenu de départ
     ret=repoGit.read('path')
-    if not ret['success']:
+    if not ret.success:
         initial_md = """# Titre
 
 Édite ce texte en **Markdown** à gauche.
@@ -453,7 +538,7 @@ async def api_save(varSession,params={}):
     data=varSession.get('form')
     print(f"fichier : { data.get('filename') }")
     print(data)
-    ret=repoGit.write(filepath=data.get('filename'),content=data.get('markdown'))
+    ret=repoGit.write(data.get('filename'),content=data.get('markdown'))
     print(ret)
     #print(repoGit.branches())
     return(ret)
@@ -508,6 +593,11 @@ app.api_add("/save",api_save,verb='POST',daType='json')
 #app.api_add("/standard",form_gestStd,acl=os.getenv('HAPACL_Status',None))
 #app.api_add("/api/std_status",api_std_status,acl=os.getenv('HAPACL_FULL',None))
 #app.api_add("/api/std_status",api_std_status,verb="POST",acl=os.getenv('HAPACL_FULL',None))
+
+if not ensure_pip_installed_requirements():
+    # gérer l'échec (log, raise, retry, ...)
+    pass
+
 
 # Et... C'est partiiiiiiiiiiiiii
 print('Ready to Get Connexion')
