@@ -15,13 +15,19 @@ import difflib
 class TrueGit:
     """Implémentation pure Python d'un client Git compatible avec les dépôts Git standard."""
     
-    def __init__(self, repo_path: str, branch: str = "main"):
+    def __init__(self, repo_path: str, branch: str = "main", 
+                 initial_commit: bool = False, 
+                 initial_message: str = "Initial commit",
+                 initial_author: str = "TrueGit <truegit@example.com>"):
         """
         Initialise un dépôt Git.
         
         Args:
             repo_path: Chemin du dépôt sur le disque
             branch: Nom de la branche (par défaut: main)
+            initial_commit: Si True, crée un commit initial vide (par défaut: False)
+            initial_message: Message du commit initial (par défaut: "Initial commit")
+            initial_author: Auteur du commit initial (par défaut: "TrueGit <truegit@example.com>")
         """
         self.repo_path = Path(repo_path).absolute()
         self.git_dir = self.repo_path / ".git"
@@ -30,6 +36,10 @@ class TrueGit:
         
         if not self.git_dir.exists():
             self._init_repository()
+            
+            # Créer un commit initial si demandé
+            if initial_commit:
+                self._create_initial_commit(initial_message, initial_author)
         else:
             # Le dépôt existe déjà, charger la branche courante
             self._load_current_branch()
@@ -60,6 +70,30 @@ class TrueGit:
         
         config_file = self.git_dir / "config"
         config_file.write_text("[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n")
+    
+    def _create_initial_commit(self, message: str, author: str):
+        """Crée un commit initial vide."""
+        # Créer un tree vide
+        tree_content = b""
+        tree_sha = self._hash_object(tree_content, "tree")
+        
+        # Créer le commit initial (sans parent)
+        date = int(time.time())
+        commit_content = f"tree {tree_sha}\n"
+        commit_content += f"author {author} {date} +0000\n"
+        commit_content += f"committer {author} {date} +0000\n"
+        commit_content += f"\n{message}\n"
+        
+        commit_sha = self._hash_object(commit_content.encode(), "commit")
+        
+        # Mettre à jour la référence de branche
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
+        branch_file.parent.mkdir(parents=True, exist_ok=True)
+        branch_file.write_text(f"{commit_sha}\n")
+        
+        # L'index reste vide (pas de fichiers)
+        self.index.clear()
+        self._write_index()
         
     def _hash_object(self, data: bytes, obj_type: str) -> str:
         """Hash un objet Git et le stocke."""
