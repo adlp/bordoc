@@ -537,13 +537,17 @@ class TrueGit:
         
         modified = []
         untracked = []
+        deleted = []
         
         if head_commit:
             head_files = self._get_tree_files(head_commit)
             
+            # Vérifier les fichiers du working tree
+            current_files = set()
             for item in self.repo_path.rglob('*'):
                 if item.is_file() and '.git' not in item.parts:
                     rel_path = str(item.relative_to(self.repo_path))
+                    current_files.add(rel_path)
                     current_content = item.read_text(errors='ignore')
                     
                     if rel_path in head_files:
@@ -551,12 +555,25 @@ class TrueGit:
                             modified.append(rel_path)
                     else:
                         untracked.append(rel_path)
+            
+            # Détecter les fichiers supprimés (dans HEAD mais pas dans working tree)
+            for head_file in head_files.keys():
+                if head_file not in current_files:
+                    deleted.append(head_file)
+        else:
+            # Pas de HEAD, tous les fichiers sont untracked
+            for item in self.repo_path.rglob('*'):
+                if item.is_file() and '.git' not in item.parts:
+                    rel_path = str(item.relative_to(self.repo_path))
+                    untracked.append(rel_path)
         
         return {
             "branch": self._current_branch,
             "head_commit": head_commit,
-            "modified": modified,
-            "untracked": untracked
+            "head_commit_short": head_commit[:8] if head_commit else None,
+            "modified": sorted(modified),
+            "deleted": sorted(deleted),
+            "untracked": sorted(untracked)
         }
     
     def cat_file(self, sha1: str) -> Tuple[str, bytes]:
