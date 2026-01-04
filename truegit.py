@@ -24,7 +24,7 @@ class TrueGit:
         """
         self.repo_path = Path(repo_path).absolute()
         self.git_dir = self.repo_path / ".git"
-        self.branch = branch
+        self._current_branch = branch
         self.index = {}  # Simule l'index Git
         
         if not self.git_dir.exists():
