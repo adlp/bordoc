@@ -514,9 +514,18 @@ class TrueGit:
         if not (source / ".git").exists():
             raise ValueError(f"{source_path} n'est pas un dépôt Git")
         
+        # Créer le répertoire de destination s'il n'existe pas
         dest.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source / ".git", dest / ".git")
         
+        # Si .git existe déjà dans la destination, le supprimer
+        dest_git = dest / ".git"
+        if dest_git.exists():
+            shutil.rmtree(dest_git)
+        
+        # Copier le dépôt .git
+        shutil.copytree(source / ".git", dest_git)
+        
+        # Créer une nouvelle instance pour le dépôt cloné
         new_repo = TrueGit(str(dest))
         head_commit = new_repo._get_head_commit()
         if head_commit:
