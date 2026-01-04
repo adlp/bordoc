@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Set, Optional
 from dulwich.repo import Repo
 from dulwich import porcelain
 from dulwich.index import IndexEntry
-from dulwich.objects import Commit, Blob, Tree
+from dulwich.objects import Commit
 
 
 @contextmanager
@@ -22,16 +22,18 @@ def chdir(path: Path):
 
 class TrueGit:
     """
-    Minimal, robust wrapper around Dulwich for tests and simple operations.
+    Robust minimal wrapper around Dulwich for tests.
+    Use debug=True to see internal debug prints.
     """
 
-    def __init__(self, repo_path: str, default_branch: str = "main"):
+    def __init__(self, repo_path: str, default_branch: str = "main", debug: bool = False):
         self.repo_path = Path(repo_path).resolve()
         self.default_branch = default_branch
+        self.debug = debug
 
         repo_created = False
 
-        # 1) Init repo if necessary
+        # Init repo if necessary
         if not (self.repo_path / ".git").exists():
             self.repo_path.mkdir(parents=True, exist_ok=True)
             porcelain.init(str(self.repo_path))
@@ -43,18 +45,17 @@ class TrueGit:
         master_ref = b"refs/heads/master"
         main_ref = f"refs/heads/{self.default_branch}".encode()
 
-        # 2) If master exists but main not, create main from master
+        # If master exists but main not, create main from master
         if master_ref in self.repo.refs and main_ref not in self.repo.refs:
             self.repo.refs[main_ref] = self.repo.refs[master_ref]
 
-        # 3) Ensure HEAD points to default branch, but do not overwrite existing HEAD
+        # Ensure HEAD points to default branch if HEAD file missing
         head_file = self.repo_path / ".git" / "HEAD"
         if not head_file.exists():
             head_file.write_text(f"ref: refs/heads/{self.default_branch}\n", encoding="utf-8")
-            # reload repo so Dulwich sees the new HEAD
             self.repo = Repo(str(self.repo_path))
 
-        # 4) If repo freshly created, create an initial commit
+        # If freshly created, create an initial commit
         if repo_created:
             init_file = self.repo_path / ".gitignore"
             init_file.write_text("# initial\n", encoding="utf-8")
@@ -66,7 +67,6 @@ class TrueGit:
                     author="truegit <local>",
                     committer="truegit <local>",
                 )
-            # reload repo to reflect new refs/objects
             self.repo = Repo(str(self.repo_path))
 
     # -------------------------
@@ -82,11 +82,64 @@ class TrueGit:
         except Exception:
             return False
 
+    def _dbg(self, *args):
+        if self.debug:
+            print("DEBUG:", *args)
+
+    def _resolve_ref_to_sha(self, ref_name: bytes) -> Optional[bytes]:
+        """
+        Résout une ref (ex: b'refs/heads/feature') en SHA si possible.
+        Suit les symbolic refs, vérifie loose refs et packed-refs.
+        Retourne None si aucune SHA trouvée.
+        """
+        # 1) tentative directe via dulwich cache
+        try:
+            sha = self.repo.refs[ref_name]
+            if sha:
+                return sha
+        except Exception:
+            pass
+    
+        # 2) si c'est une symbolic ref, read_ref renvoie la cible
+        try:
+            target = self.repo.refs.read_ref(ref_name)
+            try:
+                sha = self.repo.refs[target]
+                if sha:
+                    return sha
+            except Exception:
+                pass
+        except Exception:
+            pass
+    
+        # 3) loose ref file fallback
+        try:
+            parts = ref_name.decode().split("/")
+            ref_path = self.repo_path / ".git" / "refs" / "/".join(parts[2:])
+            if ref_path.exists():
+                txt = ref_path.read_text().strip()
+                if txt:
+                    return txt.encode()
+        except Exception:
+            pass
+    
+        # 4) packed-refs fallback (simple parse)
+        packed = self.repo_path / ".git" / "packed-refs"
+        if packed.exists():
+            for line in packed.read_text().splitlines():
+                if line.startswith("#") or line.strip() == "":
+                    continue
+                if " " in line:
+                    sha_hex, name = line.split(" ", 1)
+                    if name.strip() == ref_name.decode():
+                        return sha_hex.encode()
+    
+        return None
+    
     # -------------------------
     # Branch / refs utilities
     # -------------------------
     def current_branch(self) -> str:
-        """Return current branch name or 'HEAD' if detached/unborn."""
         head_file = self.repo_path / ".git" / "HEAD"
         try:
             content = head_file.read_text(encoding="utf-8").strip()
@@ -97,7 +150,6 @@ class TrueGit:
         return "HEAD"
 
     def branches(self) -> List[str]:
-        """List local branch names."""
         heads = []
         for ref in self.repo.refs.keys():
             if ref.startswith(b"refs/heads/"):
@@ -128,7 +180,6 @@ class TrueGit:
         return commits
 
     def status(self):
-        """Return porcelain.status output (staged/unstaged)."""
         with chdir(self.repo_path):
             return porcelain.status(".")
 
@@ -139,57 +190,66 @@ class TrueGit:
         """
         Create a branch from the commit pointed by HEAD.
         If HEAD points to a commit, branch -> that SHA.
-        If HEAD is unborn but points to a symbolic ref, create a symbolic ref.
+        If HEAD is unborn, create a symbolic ref pointing to the same ref as HEAD (normalized).
         Always reload self.repo after modification.
         """
         ref = f"refs/heads/{branch}".encode()
     
-        # Try to read the ref that HEAD points to (e.g. b"refs/heads/main")
+        # Try to read the ref that HEAD points to (may return b'ref: refs/heads/main' or b'refs/heads/main')
         try:
-            head_ref = self.repo.refs.read_ref(b"HEAD")
+            raw_head_ref = self.repo.refs.read_ref(b"HEAD")
         except Exception:
-            head_ref = None
+            raw_head_ref = None
     
+        # Normalize: if raw_head_ref starts with b"ref:" strip it
+        head_ref = None
+        if raw_head_ref is not None:
+            if isinstance(raw_head_ref, bytes) and raw_head_ref.startswith(b"ref:"):
+                # e.g. b"ref: refs/heads/main" -> b"refs/heads/main"
+                head_ref = raw_head_ref.split(b":", 1)[1].strip()
+            else:
+                head_ref = raw_head_ref
+    
+        # Try to resolve a SHA for the head_ref
         head_sha = None
         if head_ref is not None:
             try:
                 head_sha = self.repo.refs[head_ref]
-            except KeyError:
+            except Exception:
                 head_sha = None
     
         if head_sha:
-            # Normal case: HEAD points to a commit SHA
+            # HEAD points to a commit SHA: create branch pointing to that SHA
             self.repo.refs[ref] = head_sha
+            self._dbg("create_branch:", branch, "->", head_sha)
         else:
-            # HEAD unborn: create a symbolic ref pointing to the same ref as HEAD (if any)
+            # HEAD unborn: create a symbolic ref to the same ref as HEAD if we have a normalized head_ref
             if head_ref is not None:
                 try:
                     self.repo.refs.set_symbolic_ref(ref, head_ref)
-                except Exception:
-                    # Fallback: create the loose ref file empty (rare)
-                    ref_path = self.repo_path / ".git" / "refs" / "heads" / branch
-                    ref_path.parent.mkdir(parents=True, exist_ok=True)
-                    ref_path.write_text("", encoding="utf-8")
+                    self._dbg("create_branch symbolic:", branch, "->", head_ref)
+                except Exception as e:
+                    # fallback: do not create an empty ref file; leave branch absent
+                    self._dbg("create_branch: failed to set_symbolic_ref, not creating branch file:", e)
+                    return
             else:
-                # No head_ref readable: create an empty loose ref file (rare)
-                ref_path = self.repo_path / ".git" / "refs" / "heads" / branch
-                ref_path.parent.mkdir(parents=True, exist_ok=True)
-                ref_path.write_text("", encoding="utf-8")
+                # No head_ref readable: do nothing (do not create empty ref)
+                self._dbg("create_branch: no head_ref, not creating branch")
+                return
     
-        # IMPORTANT: reload repo so Dulwich sees the new ref immediately
+        # reload repo so Dulwich sees the new ref immediately
         self.repo = Repo(str(self.repo_path))
-    
     
     def delete_branch(self, branch: str):
         ref = f"refs/heads/{branch}".encode()
         if ref in self.repo.refs:
             del self.repo.refs[ref]
+            self.repo = Repo(str(self.repo_path))
 
     # -------------------------
     # File operations
     # -------------------------
     def read(self, filepath: str, branch: Optional[str] = None) -> str:
-        """Read a file from a given branch (or current branch)."""
         branch = branch or self.current_branch()
         ref = f"refs/heads/{branch}".encode()
         if ref not in self.repo.refs:
@@ -208,12 +268,10 @@ class TrueGit:
         return obj.data.decode()
 
     def add(self, filepath: str):
-        """Stage a file (git add)."""
         with chdir(self.repo_path):
             porcelain.add(".", paths=[filepath])
 
     def rm(self, filepath: str):
-        """Remove a file from FS and stage its deletion."""
         full_path = (self.repo_path / filepath)
         if full_path.exists():
             full_path.unlink()
@@ -235,6 +293,7 @@ class TrueGit:
         # reload repo to keep Dulwich cache consistent
         self.repo = Repo(str(self.repo_path))
         sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+        self._dbg("commit:", sha, "message:", message)
         return sha
 
     def write(self, filepath: str, content: str, branch: Optional[str] = None, message: str = "update", author: str = "truegit <local>") -> str:
@@ -270,6 +329,7 @@ class TrueGit:
         # reload repo to keep Dulwich cache consistent
         self.repo = Repo(str(self.repo_path))
         sha = commit_id.decode() if isinstance(commit_id, bytes) else str(commit_id)
+        self._dbg("write commit:", sha, "file:", filepath)
         return sha
 
     # -------------------------
@@ -287,49 +347,44 @@ class TrueGit:
         - final verification
         """
         ref = f"refs/heads/{branch}".encode()
-    
-        # --- Ensure we have the freshest view of refs (fixes race with create_branch)
+
+        # Ensure freshest view of refs
         self.repo = Repo(str(self.repo_path))
-    
-        # If the ref is still missing, try a filesystem fallback (packed-refs or direct file)
+
+        # If ref missing, try reload and fallback to on-disk check
         if ref not in self.repo.refs:
-            # reload once more (defensive)
             self.repo = Repo(str(self.repo_path))
             if ref not in self.repo.refs:
-                # fallback: check on-disk refs (loose refs)
                 ref_path = self.repo_path / ".git" / "refs" / "heads" / branch
                 if not ref_path.exists():
-                    # final fallback: check packed-refs
                     packed = self.repo_path / ".git" / "packed-refs"
                     if not packed.exists():
                         raise ValueError(f"La branche {branch} n'existe pas")
-                    # if packed exists but branch not found, still raise
-                    # (we could parse packed-refs here if needed)
+                    # If packed exists but branch not found, raise (parsing packed-refs optional)
                     raise ValueError(f"La branche {branch} n'existe pas")
-    
+
         # 0) HEAD -> branch (first) and reload repo to invalidate Dulwich cache
         head_file = self.repo_path / ".git" / "HEAD"
         head_file.write_text(f"ref: refs/heads/{branch}\n", encoding="utf-8")
         self.repo = Repo(str(self.repo_path))
-        print("DEBUG: repo.refs keys:", sorted([r.decode() for r in self.repo.refs.keys() if r.startswith(b"refs/heads/")]))
-    
-        # 1) Read commit and tree (handle unborn branch)
-        commit_sha = None
-        try:
-            commit_sha = self.repo.refs[ref]
-            print("DEBUG: commit_sha for", branch, "=", commit_sha)
-        except KeyError:
-            print("DEBUG: no commit sha for", branch)
-            commit_sha = None
-    
+
+#        # 1) Read commit and tree (handle unborn branch)
+#        commit_sha = None
+#        try:
+#            commit_sha = self.repo.refs[ref]
+#        except KeyError:
+#            commit_sha = None
+# après self.repo = Repo(str(self.repo_path))
+        commit_sha = self._resolve_ref_to_sha(ref)
         if commit_sha is None:
             tree = None
-            expected: Set[str] = set()
+            expected = set()
         else:
             commit = self.repo[commit_sha]
             tree = self.repo[commit.tree]
-    
-            # 2) Collect expected file paths from the tree (posix-style relative)
+            # ensuite collect_tree_paths comme avant
+
+            # collect expected file paths
             def collect_tree_paths(tree_obj, base="") -> Set[str]:
                 paths = set()
                 for name in tree_obj:
@@ -342,26 +397,25 @@ class TrueGit:
                     else:
                         paths.add(full)
                 return paths
-    
+
             expected = collect_tree_paths(tree)
-    
-        # debug
-        print("DEBUG: expected paths:", sorted(expected))
-    
+
+        self._dbg("expected paths:", sorted(expected))
+
         git_dir = (self.repo_path / ".git").resolve()
-    
+
         def is_in_git(path: Path) -> bool:
             try:
                 return git_dir == path.resolve() or git_dir in path.resolve().parents
             except Exception:
                 return False
-    
+
         # 3) Remove any file in worktree not in expected (skip .git)
         for root, dirs, files in os.walk(self.repo_path, topdown=False):
             root_path = Path(root)
             if is_in_git(root_path):
                 continue
-    
+
             for f in files:
                 full_path = root_path / f
                 if is_in_git(full_path):
@@ -371,13 +425,13 @@ class TrueGit:
                     try:
                         if full_path.is_symlink() or full_path.is_file():
                             full_path.unlink()
-                            print("DEBUG: removed file", rel)
+                            self._dbg("removed file", rel)
                         else:
                             full_path.unlink()
-                            print("DEBUG: removed (fallback) file", rel)
+                            self._dbg("removed (fallback) file", rel)
                     except Exception as e:
-                        print("WARN: failed to remove file", rel, ":", e)
-    
+                        self._dbg("WARN: failed to remove file", rel, ":", e)
+
             for d in dirs:
                 dpath = root_path / d
                 if is_in_git(dpath):
@@ -387,14 +441,14 @@ class TrueGit:
                 if not has_expected_under:
                     try:
                         dpath.rmdir()
-                        print("DEBUG: removed empty dir", rel_dir)
+                        self._dbg("removed empty dir", rel_dir)
                     except OSError:
                         try:
                             shutil.rmtree(dpath)
-                            print("DEBUG: rmtree removed dir", rel_dir)
+                            self._dbg("rmtree removed dir", rel_dir)
                         except Exception as e:
-                            print("WARN: failed to rmtree", rel_dir, ":", e)
-    
+                            self._dbg("WARN: failed to rmtree", rel_dir, ":", e)
+
         # 4) Recreate expected files from the tree
         if tree is not None:
             def checkout_tree(tree_obj, base_path: Path):
@@ -411,14 +465,14 @@ class TrueGit:
                     else:
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_bytes(obj.data)
-                        print("DEBUG: wrote file", str(path.relative_to(self.repo_path)))
-    
+                        self._dbg("wrote file", str(path.relative_to(self.repo_path)))
+
             checkout_tree(tree, self.repo_path)
-    
+
         # 5) Rebuild the index from the tree
         index = self.repo.open_index()
         index.clear()
-    
+
         def add_tree_to_index(tree_obj, base=b""):
             for name in tree_obj:
                 mode, sha = tree_obj[name]
@@ -435,11 +489,11 @@ class TrueGit:
                         0
                     )
                     index[full] = entry
-    
+
         if tree is not None:
             add_tree_to_index(tree)
         index.write()
-    
+
         # 6) Final verification: no unexpected files remain
         remaining = []
         for root, dirs, files in os.walk(self.repo_path):
@@ -450,10 +504,10 @@ class TrueGit:
                 rel = os.path.relpath(root_path / f, self.repo_path).replace(os.sep, "/")
                 if rel not in expected:
                     remaining.append(rel)
-    
+
         if remaining:
-            print("ERROR: remaining unexpected files after checkout:", remaining)
+            self._dbg("ERROR: remaining unexpected files after checkout:", remaining)
             raise RuntimeError(f"Checkout incomplete, remaining files: {remaining}")
-    
-        print("DEBUG: checkout complete, expected files present and no unexpected files remain.")
-    
+
+        self._dbg("checkout complete, expected files present and no unexpected files remain.")
+
