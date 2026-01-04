@@ -412,6 +412,35 @@ class TrueGit:
         
         return commits
     
+    def get_commit(self, commit_sha: Optional[str] = None) -> Optional[Dict]:
+        """
+        Récupère les informations d'un ou plusieurs commits.
+        
+        Args:
+            commit_sha: SHA du commit (complet ou court). Si None, retourne tous les commits.
+        
+        Returns:
+            Si commit_sha est fourni: dictionnaire du commit ou None si non trouvé
+            Si commit_sha est None: liste de tous les commits
+        """
+        if commit_sha is None:
+            # Retourner tous les commits
+            return self.log()
+        
+        # Rechercher un commit spécifique
+        all_commits = self.log()
+        
+        # Supporter les SHA courts (au moins 4 caractères)
+        if len(commit_sha) < 4:
+            return None
+        
+        # Rechercher le commit par SHA complet ou partiel
+        for commit in all_commits:
+            if commit['sha'] == commit_sha or commit['sha'].startswith(commit_sha):
+                return commit
+        
+        return None
+    
     def create_branch(self, name: str):
         """Crée une nouvelle branche."""
         head_commit = self._get_head_commit()
