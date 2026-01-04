@@ -357,6 +357,17 @@ def mermaid_plugin(md: MarkdownIt):
     md.renderer.rules["fence"] = render_mermaid
     return md
 
+def rewrite_links(html: str) -> str:
+    # pattern : capture le préfixe <a ... href="  puis la valeur si elle ne commence ni par un schéma ni par /
+    pattern = re.compile(
+        r'(<a\s+[^>]*href\s*=\s*")'        # groupe 1 : début de l'attribut href avec "
+        r'(?![a-zA-Z][\w+.-]*:|/)'        # negative lookahead : pas de scheme: ni slash initial
+        r'([^"]+)'                        # groupe 2 : la valeur href (tout jusqu'à ")
+        r'(")',                           # groupe 3 : la quote fermante
+        flags=re.IGNORECASE
+    )
+    """Préfixe les href relatifs par /pages/ (ne touche pas aux href absolus ou commençant par /)."""
+    return pattern.sub(r'\1/pages/\2\3', html)
 
 def render_markdown(text):
     # 1) Supprimer les commentaires
@@ -388,7 +399,9 @@ def render_markdown(text):
 
     # 5) Rendu HTML
     html = md.render(text)
-    html=re.sub(r'<a href="">([^<]+\.md)</a>',r'<a href="/\1">\1</a>',html)
+    #html=re.sub(r'<a href="">([^<]+\.md)</a>',r'<a href="/\1">\1</a>',html)
+    # <p><a href="tagazogue">texte</a></p>
+    html = rewrite_links(html)
 
     return html, toc, meta
 
