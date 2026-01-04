@@ -4,6 +4,7 @@ import zlib
 import time
 import shutil
 import re
+import struct
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 import stat
@@ -133,6 +134,10 @@ class TrueGit:
                 mode = "40000"
                 entries.append((mode, item.name, sha1))
         
+        # Si aucun fichier, créer un tree vide
+        if not entries:
+            return self._hash_object(b"", "tree")
+        
         tree_content = b""
         for mode, name, sha1 in entries:
             tree_content += f"{mode} {name}\0".encode()
@@ -177,6 +182,76 @@ class TrueGit:
         
         return commit_info
     
+    def _write_index(self):
+        """Écrit un fichier index Git (format binaire simplifié version 2)."""
+        import struct
+        
+        index_file = self.git_dir / "index"
+        
+        # Si l'index est vide, supprimer le fichier
+        if not self.index:
+            if index_file.exists():
+                index_file.unlink()
+            return
+        
+        # Format Git index version 2
+        entries = []
+        for path, data in sorted(self.index.items()):
+            # Stat du fichier
+            file_path = self.repo_path / path
+            if file_path.exists():
+                stat_info = file_path.stat()
+                ctime_s = int(stat_info.st_ctime)
+                ctime_ns = int((stat_info.st_ctime - ctime_s) * 1000000000)
+                mtime_s = int(stat_info.st_mtime)
+                mtime_ns = int((stat_info.st_mtime - mtime_s) * 1000000000)
+                dev = stat_info.st_dev
+                ino = stat_info.st_ino
+                mode = int(data['mode'], 8) if isinstance(data, dict) else 0o100644
+                uid = stat_info.st_uid
+                gid = stat_info.st_gid
+                size = stat_info.st_size
+            else:
+                # Valeurs par défaut si le fichier n'existe pas
+                ctime_s = ctime_ns = mtime_s = mtime_ns = 0
+                dev = ino = uid = gid = size = 0
+                mode = 0o100644
+            
+            sha_bytes = bytes.fromhex(data['sha'] if isinstance(data, dict) else data)
+            path_bytes = path.encode('utf-8')
+            
+            # Flags: assume-valid (1 bit) + extended (1 bit) + stage (2 bits) + name length (12 bits)
+            flags = min(len(path_bytes), 0xFFF)
+            
+            # Construire l'entrée
+            entry = struct.pack('>IIIIIIIIII20sH',
+                ctime_s, ctime_ns,
+                mtime_s, mtime_ns,
+                dev, ino, mode, uid, gid, size,
+                sha_bytes, flags
+            )
+            entry += path_bytes
+            
+            # Padding pour aligner sur 8 octets
+            padlen = (8 - ((62 + len(path_bytes)) % 8)) % 8
+            entry += b'\x00' * padlen
+            
+            entries.append(entry)
+        
+        # Header: signature + version + nombre d'entrées
+        header = b'DIRC'  # Signature
+        header += struct.pack('>I', 2)  # Version 2
+        header += struct.pack('>I', len(entries))  # Nombre d'entrées
+        
+        # Construire l'index complet
+        index_content = header + b''.join(entries)
+        
+        # Calculer le SHA-1 du contenu
+        index_sha = hashlib.sha1(index_content).digest()
+        
+        # Écrire le fichier
+        index_file.write_bytes(index_content + index_sha)
+    
     def add(self, *paths: str):
         """Ajoute des fichiers à l'index (staging area)."""
         for path_str in paths:
@@ -190,15 +265,25 @@ class TrueGit:
             if path.is_file():
                 rel_path = path.relative_to(self.repo_path)
                 content = path.read_bytes()
+                # Créer le blob immédiatement pour que Git puisse le voir
                 sha1 = self._hash_object(content, "blob")
-                self.index[str(rel_path)] = sha1
+                self.index[str(rel_path)] = {
+                    'sha': sha1,
+                    'mode': '100755' if os.access(path, os.X_OK) else '100644'
+                }
             elif path.is_dir():
                 for item in path.rglob('*'):
                     if item.is_file() and '.git' not in item.parts:
                         rel_path = item.relative_to(self.repo_path)
                         content = item.read_bytes()
                         sha1 = self._hash_object(content, "blob")
-                        self.index[str(rel_path)] = sha1
+                        self.index[str(rel_path)] = {
+                            'sha': sha1,
+                            'mode': '100755' if os.access(item, os.X_OK) else '100644'
+                        }
+        
+        # Écrire l'index pour que Git puisse le voir (format simplifié)
+        self._write_index()
     
     def commit(self, message: str, author: Optional[str] = None, 
                committer: Optional[str] = None, date: Optional[int] = None) -> str:
@@ -226,7 +311,10 @@ class TrueGit:
         branch_file.parent.mkdir(parents=True, exist_ok=True)
         branch_file.write_text(f"{commit_sha}\n")
         
+        # Nettoyer l'index après le commit
         self.index.clear()
+        self._write_index()  # Supprimer le fichier index
+        
         return commit_sha
     
     def log(self, max_count: Optional[int] = None) -> List[Dict]:
