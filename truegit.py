@@ -411,7 +411,7 @@ class TrueGit:
     
     def reset(self, commit_sha: str, hard: bool = False):
         """Reset vers un commit."""
-        branch_file = self.git_dir / "refs" / "heads" / self.branch
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
         branch_file.write_text(f"{commit_sha}\n")
         
         if hard:
@@ -496,6 +496,9 @@ class TrueGit:
         
         target_commit = target_file.read_text().strip()
         current_commits = self.log()
+        
+        # Sauvegarder la branche courante
+        original_branch = self._current_branch
         
         self.reset(target_commit, hard=True)
         
