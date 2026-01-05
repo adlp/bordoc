@@ -13,7 +13,7 @@ window.editorSave = async function () {
     const res = await fetch("/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: text, filename }),
+        body: JSON.stringify({ autosave: 1, markdown: text, filename }),
     });
 
     if (res.ok) {
@@ -47,7 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const res = await fetch("/save", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ markdown: text, filename }),
+            body: JSON.stringify({ autosave: 1, markdown: text, filename }),
         });
 
         if (res.ok) {

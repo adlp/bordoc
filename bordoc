@@ -588,12 +588,14 @@ async def api_save(varSession,params={}):
     print('Try To save')
     #print(varSession.get('form'))
     data=varSession.get('form')
-    print(f"fichier : { data.get('filename') }")
-    #print(data)
+    branch="main"
+    if data.get('autosave',0) == 1:
+        branch="autosave"
     filename=data.get('filename')
     access=getAcl(path=filename,action="write")
+    print(f"fichier : {data.get('autosave',0)}/{branch}\{ data.get('filename') }")
     if access:
-        ret=repoGit.write(data.get('filename'),content=data.get('markdown'))
+        ret=repoGit.write(data.get('filename'),content=data.get('markdown'),branch=branch)
         return(ret)
     return(access)
     #print(ret)

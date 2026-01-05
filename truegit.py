@@ -197,6 +197,34 @@ class TrueGit:
         """Retourne la branche courante."""
         return self._current_branch
     
+    def ensure_branch_exists(self, branch_name: str, create_if_missing: bool = False) -> bool:
+        """
+        Vérifie qu'une branche existe, optionnellement la crée.
+        
+        Args:
+            branch_name: Nom de la branche
+            create_if_missing: Si True, crée la branche si elle n'existe pas
+        
+        Returns:
+            True si la branche existe ou a été créée, False sinon
+        """
+        branch_file = self.git_dir / "refs" / "heads" / branch_name
+        
+        if branch_file.exists():
+            return True
+        
+        if create_if_missing:
+            # Vérifier qu'il y a au moins un commit pour créer une branche
+            head_commit = self._get_head_commit()
+            if not head_commit:
+                return False
+            
+            # Créer la branche
+            self.create_branch(branch_name)
+            return True
+        
+        return False
+    
     def _parse_commit(self, commit_sha: str) -> Dict:
         """Parse un commit et retourne ses informations."""
         obj_type, content = self._read_object(commit_sha)
@@ -332,6 +360,17 @@ class TrueGit:
     
     def add(self, *paths: str):
         """Ajoute des fichiers à l'index (staging area)."""
+        # Vérifier qu'on est dans un état cohérent
+        branch_file = self.git_dir / "refs" / "heads" / self._current_branch
+        
+        # Si on n'a aucun commit et que la branche n'existe pas, c'est OK (premier commit)
+        # Sinon, la branche doit exister
+        if not branch_file.exists():
+            head_commit = self._get_head_commit()
+            if head_commit:
+                # On a un commit mais la branche n'existe pas - état incohérent
+                raise ValueError(f"État incohérent: la branche '{self._current_branch}' n'existe pas mais HEAD pointe vers un commit")
+        
         for path_str in paths:
             path = Path(path_str)
             if not path.is_absolute():
@@ -467,6 +506,34 @@ class TrueGit:
                 branches.append(f"{prefix}{branch_name}")
         return sorted(branches)
     
+    def ensure_branch_exists(self, branch_name: str, create_if_missing: bool = False) -> bool:
+        """
+        Vérifie qu'une branche existe, optionnellement la crée.
+        
+        Args:
+            branch_name: Nom de la branche
+            create_if_missing: Si True, crée la branche si elle n'existe pas
+        
+        Returns:
+            True si la branche existe ou a été créée, False sinon
+        """
+        branch_file = self.git_dir / "refs" / "heads" / branch_name
+        
+        if branch_file.exists():
+            return True
+        
+        if create_if_missing:
+            # Vérifier qu'il y a au moins un commit pour créer une branche
+            head_commit = self._get_head_commit()
+            if not head_commit:
+                return False
+            
+            # Créer la branche
+            self.create_branch(branch_name)
+            return True
+        
+        return False
+    
     def switch(self, branch_name: str):
         """Change de branche."""
         branch_file = self.git_dir / "refs" / "heads" / branch_name
@@ -477,7 +544,15 @@ class TrueGit:
         head_file = self.git_dir / "HEAD"
         head_file.write_text(f"ref: refs/heads/{branch_name}\n")
         
-        self._checkout_tree(branch_file.read_text().strip())
+        # Charger le commit de la branche cible
+        target_commit = branch_file.read_text().strip()
+        
+        # Restaurer les fichiers
+        self._checkout_tree(target_commit)
+        
+        # Reconstruire l'index à partir du commit cible
+        commit_info = self._parse_commit(target_commit)
+        self._rebuild_index_from_tree(commit_info['tree'])
     
     def _checkout_tree(self, commit_sha: str):
         """Restaure l'arborescence à partir d'un commit."""
