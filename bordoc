@@ -36,6 +36,7 @@ parser.add_argument("--name", default="default", help="Specify a part of a confi
 
 SLIDES_DIR = "/slides"
 MARP_URL = "http://marp:8080"
+IDX="accueil"
 
 repoGit=SimpleGit(SLIDES_DIR)
 
@@ -406,6 +407,7 @@ def render_markdown(text):
     return html, toc, meta
 
 def form_accueil(varSession,params={}):
+    return({'redirect':'/pages/'})
     mdd=""
     path=params.get("path","")
     if not len(path):
@@ -413,12 +415,8 @@ def form_accueil(varSession,params={}):
     ret=repoGit.read(path)
     if ret.success:
         print(f'Charging {path}')
-        print(ret)
         mdd=ret.data.get('content','')
 #bordoc       | SimpleGitResult(success=True, message='File read', error=None, data={'file': 'accueil.md', 'content': '---\nmarp: true\npaginate: true\n---\n\n# Bienvenue\n\nVoici une présentation **Marp** servie via FastAPI proxy.\n\n---\n\n## Deuxième slide\n\n- Point 1\n- Point 27\n\n'})
-
-    else:
-        print(ret)
 
     html,toc,meta = render_markdown(mdd)
     template_data={}
@@ -431,6 +429,45 @@ def form_accueil(varSession,params={}):
     template_data['date']=meta['date']
     template_data['draft']=meta['draft']
     print(template_data)
+
+    return({'template':"page_markdown.html",'varSession': varSession,'template_data':template_data})
+
+def getAcl(path=None,action=None,who=None):
+    if not path or not action:
+        return(False)
+    aclfiles=repoGit.read("acl.md")
+    if path=="acl.md":
+        if action=="read":
+            return True
+        else:
+            return False
+    else:
+        return True
+
+def form_pages(varSession,params={}):
+    mdd=""
+    path=params.get("path","")
+    if not len(path):
+        path=IDX
+    path+=".md"
+    access=getAcl(path=path,action="read")
+    if access:
+        ret=repoGit.read(path)
+    if access and ret.success:
+        print(f'Charging {path}')
+        mdd=ret.data.get('content','')
+    else:
+        mdd=f"Désolé, {path} inexistante ou inaccessible ou les deux:{access}"
+    html,toc,meta = render_markdown(mdd)
+    template_data={}
+    template_data['filename']=path
+    template_data['html']=html
+    template_data['toc']=toc
+    template_data['title']=meta['title']
+    template_data['tags']=meta['tags']
+    template_data['description']=meta['description']
+    template_data['date']=meta['date']
+    template_data['draft']=meta['draft']
 
     return({'template':"page_markdown.html",'varSession': varSession,'template_data':template_data})
 
@@ -509,6 +546,8 @@ La prévisualisation s’affiche à droite.
     template_data={}
     template_data['initial_md']=initial_md
     template_data['initial_html']=initial_html
+    template_data['initial_filename']=path
+
     newtoc=""
     for item in toc:
         print(item)
@@ -550,11 +589,15 @@ async def api_save(varSession,params={}):
     #print(varSession.get('form'))
     data=varSession.get('form')
     print(f"fichier : { data.get('filename') }")
-    print(data)
-    ret=repoGit.write(data.get('filename'),content=data.get('markdown'))
-    print(ret)
+    #print(data)
+    filename=data.get('filename')
+    access=getAcl(path=filename,action="write")
+    if access:
+        ret=repoGit.write(data.get('filename'),content=data.get('markdown'))
+        return(ret)
+    return(access)
+    #print(ret)
     #print(repoGit.branches())
-    return(ret)
 
 app = Zapiz(
     host=cfg['API_HOST'],
@@ -585,6 +628,8 @@ app = Zapiz(
 # Creation du nouvel environnement
 #app.add_template('astemplate')
 app.api_add("/",form_accueil)
+app.api_add("/pages",form_pages)
+app.api_add("/pages/{path:path}",form_pages)
 #@app.get("/slides/{path:path}")
 #async def proxy_slides(path: str):
 app.api_add("/slides",form_SlideIndex)
