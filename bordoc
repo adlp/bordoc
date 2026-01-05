@@ -660,5 +660,10 @@ if not ensure_pip_installed_requirements():
 
 
 # Et... C'est partiiiiiiiiiiiiii
+validAcc=repoGit.read(IDX+".md")
+if not validAcc.success:
+    print("Creation de l'index en markdown, ainsi l'ami markdown pourra demarrer lui aussi... apres")
+    repoGit.write(IDX+".md",content="Nelle page d'accueil")
+
 print('Ready to Get Connexion')
 app.run()
