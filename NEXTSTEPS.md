@@ -1,5 +1,6 @@
 * [x] Creation de la route /pages
 * [x] suppression de l'usage apparant du .md
+* [ ] suppression de l'usage apparant dans l'editeur !!!!
 * [ ] acl (debuté)
 * [ ] git push
 * [x] l'onglet file ne permet plus le multi load dans l'editeur
