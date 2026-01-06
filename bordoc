@@ -530,7 +530,7 @@ async def liste_fichiers(varSession,params={}):
 async def form_editor(varSession,params={}):
     path=params.get("path","")
     # Contenu de départ
-    ret=repoGit.read('path')
+    ret=repoGit.read(path)
     if not ret.success:
         initial_md = """# Titre
 
@@ -541,7 +541,7 @@ La prévisualisation s’affiche à droite.
 - Point 2
 """
     else:
-        initial_md=ret.content
+        initial_md=ret.data.get('content','')
     initial_html,toc,meta = render_markdown(initial_md)
     template_data={}
     template_data['initial_md']=initial_md
