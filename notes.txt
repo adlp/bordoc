@@ -1,0 +1,7 @@
+
+https://www.alsacreations.com/astuce/lire/1932-Mermaid--diagrammes-schemas-et-graphiques-dans-markdown.html
+https://docs.github.com/fr/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
+https://mermaid.js.org/
+
+
+https://docs.github.com/fr/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams
