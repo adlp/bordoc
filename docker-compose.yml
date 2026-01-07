@@ -1,0 +1,65 @@
+services:
+  marp:
+    image: marpteam/marp-cli
+    container_name: marp.${PROJECT}
+    hostname: marp.${PROJECT}
+    volumes:
+      - ${DOPATDATA}/slides:/slides:ro
+      - ${DOPATDATA}/generated:/generated:rw
+    command:  -s -o /generated -I /slides -p 8080
+    #entrypoint: ["sleep", "infinity" ]
+    depends_on:
+      bordoc:
+        condition: service_healthy
+    logging:
+      driver: syslog
+      options:
+        syslog-address: udp://127.0.0.1:514
+        syslog-format: "rfc3164"
+        syslog-facility: local0
+        tag: marp.${PROJECT}
+
+  bordoc:
+    image: python:3.8
+    container_name: ${PROJECT}
+    hostname: ${PROJECT}
+    user: "1000:1000"
+    volumes:
+      # Fichier de conf
+      # requierement
+      - ${DOPATZAP}:/srv/zapiz/:ro
+      - ${DOPATBORC}:/srv/bordoc:ro
+#      - ${DOPATSTAT}:/srv/bordoc/static/:ro
+      - ${DOPATHTML}:/var/www/html/:ro
+#      - ${DOPATDATA}/content/:/var/www/content/:rw
+#      - ${DOPATDATA}/slides:/var/www/slides:ro
+#      - ${DOPATDATA}/generated:/var/www/generated:rw
+      - ${DOPATETC}:/usr/local/etc/bordoc.cfg:ro
+      - ${DOPATDATA}/slides:/slides:rw
+      - ${DOPATDATA}/generated:/generated:rw
+      - ${DOPATPIP}:/srv/pip-install:rw
+      - ${DOPATCACHE}:/.cache/pip:rw
+    ports:
+      - "${BIND:-0.0.0.0:8889}:8888"
+    env_file:
+      - ${DOENVAR}
+    restart: always
+    working_dir: /srv/${APPLI:-bordoc}/
+    ###command: /bin/bash -c "pip install --no-cache-dir -r /srv/bordoc/requirements.txt --target /srv/pip-install && /srv/${APPLI:-bordoc}/${APPLI:-bordoc}"
+    command: /bin/bash -c "/srv/${APPLI:-bordoc}/${APPLI:-bordoc}"
+    #command: sleep infinity
+    healthcheck:
+      # Vérifie à la fois l'HTTP sur 8889 et la présence d'un fichier *.md dans /slides
+      test: ["CMD-SHELL", "test -e /tmp/started || curl -fsS http://localhost:8888/ >/dev/null && ls /slides/*.md && touch /tmp/started >/dev/null"]
+      #interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: syslog
+      options:
+        syslog-address: udp://127.0.0.1:514
+        syslog-format: "rfc3164"
+        syslog-facility: local0
+        tag: ${PROJECT}
+
