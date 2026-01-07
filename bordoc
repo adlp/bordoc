@@ -1,27 +1,99 @@
 #!/usr/bin/env python3
 
-import sys
-import os
-import httpx
-
+#import sys
+#import os
+import re
 import subprocess
+import os,argparse,sys,configparser
 from pathlib import Path
 from typing import Optional
 
 
+from pathlib import Path
+import sys
+import subprocess
+
+def install_requirements(requirements_path, pip_target_dir, marker_file):
+    """
+    Installe les dépendances depuis un fichier requirements.txt si nécessaire.
+    
+    Args:
+        requirements_path: chemin vers le fichier requirements.txt
+        pip_target_dir: répertoire cible pour l'installation pip
+        marker_file: fichier marqueur pour vérifier si l'installation est à jour
+    """
+    requirements_path = Path(requirements_path)
+    pip_target_dir = Path(pip_target_dir)
+    marker_file = Path(marker_file)
+    
+    # Vérifier si le fichier requirements existe
+    if not requirements_path.exists():
+        print(f"Erreur: {requirements_path} n'existe pas")
+        return
+    
+    # Déterminer si l'installation est nécessaire
+    needs_install = False
+    
+    if not marker_file.exists():
+        needs_install = True
+        print(f"Installation nécessaire: le marqueur {marker_file} n'existe pas")
+    else:
+        # Comparer les timestamps
+        req_mtime = requirements_path.stat().st_mtime
+        marker_mtime = marker_file.stat().st_mtime
+        
+        if req_mtime > marker_mtime:
+            needs_install = True
+            print(f"Installation nécessaire: {requirements_path} est plus récent que {marker_file}")
+    
+    # Installer si nécessaire
+    if needs_install:
+        print(f"Installation des dépendances dans {pip_target_dir}...")
+        
+        # Créer le répertoire cible s'il n'existe pas
+        pip_target_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "-r", str(requirements_path),
+                "--target", str(pip_target_dir)
+            ])
+            
+            # Créer/mettre à jour le fichier marqueur
+            marker_file.parent.mkdir(parents=True, exist_ok=True)
+            marker_file.touch()
+            
+            print("Installation terminée avec succès")
+        except subprocess.CalledProcessError as e:
+            print(f"Erreur lors de l'installation: {e}")
+            sys.exit(1)
+    else:
+        print("Les dépendances sont déjà à jour")
+
+# Utilisation
+install_requirements(
+    "/srv/bordoc/requirements.txt",
+    "/srv/pip-install",
+    "/tmp/required"
+)
+
+# Ajouter le répertoire au PYTHONPATH pour pouvoir importer les modules
+sys.path.insert(0, "/srv/pip-install")
+sys.path.insert(0, "/srv/zapiz")
+
+
+import httpx
 
 # Chemin absolu vers le dossier 'kernel'
-kernel_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'zapiz'))
+#kernel_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'zapiz'))
 
 # Ajout au chemin d'import
-if kernel_path not in sys.path:
-    sys.path.insert(0, kernel_path)
+#if kernel_path not in sys.path:
+#    sys.path.insert(0, kernel_path)
 
 from zapiz import Zapiz
 
-import os,argparse,sys,configparser
-
-import re
 import markdown
 from markdown_it import MarkdownIt
 from mdit_py_plugins.tasklists import tasklists_plugin
@@ -113,82 +185,6 @@ if 'SENTRY_DSN' in cfg.keys():
         send_default_pii=True,
         )
 
-def ensure_pip_installed_requirements(
-    requirements_path: str = "/srv/bordoc/requirements.txt",
-    target_dir: str = "/srv/pip-install",
-    marker_path: str = "/tmp/requiered",
-    timeout: Optional[int] = None,
-) -> bool:
-    """
-    Si le fichier `marker_path` n'existe pas, exécute:
-      python -m pip install -r requirements_path --target target_dir
-    Si la commande réussit, crée atomiquement le fichier `marker_path`.
-    Retourne True si tout s'est bien passé (marker présent ou créé), False sinon.
-    Affiche des messages d'erreur en cas d'échec.
-    """
-    req = Path(requirements_path)
-    target = Path(target_dir)
-    marker = Path(marker_path)
-
-    # Si le marqueur existe déjà, rien à faire
-    if marker.exists():
-        print(f"Marker exists: {marker} — nothing to do.")
-        return True
-
-    # Vérifications préalables
-    if not req.exists():
-        print(f"Erreur: requirements file not found: {req}")
-        return False
-    if not req.is_file():
-        print(f"Erreur: requirements path is not a file: {req}")
-        return False
-
-    # S'assurer que le répertoire cible existe
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        print(f"Erreur: impossible de créer le répertoire cible {target}: {e}")
-        return False
-
-    # Construire la commande pip en utilisant l'interpréteur Python courant
-    cmd = [sys.executable, "-m", "pip", "install", "-r", str(req), "--target", str(target)]
-    print("Exécution de:", " ".join(cmd))
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        print("Erreur: la commande pip a expiré (timeout).")
-        return False
-    except OSError as e:
-        print(f"Erreur: impossible d'exécuter pip: {e}")
-        return False
-
-    # Afficher la sortie pour diagnostic si échec
-    if proc.returncode != 0:
-        print("pip a échoué avec le code", proc.returncode)
-        if proc.stdout:
-            print("stdout:", proc.stdout)
-        if proc.stderr:
-            print("stderr:", proc.stderr)
-        return False
-
-    # Si la commande a réussi, créer le fichier marker de façon atomique
-    try:
-        tmp_marker = marker.with_suffix(".tmp")
-        tmp_marker.write_text("installed\n", encoding="utf-8")
-        tmp_marker.replace(marker)  # atomique sur la plupart des systèmes
-        print(f"Succès: marker créé {marker}")
-        return True
-    except Exception as e:
-        print(f"Erreur: impossible de créer le marker {marker}: {e}")
-        return False
 
 
 #def form_newHome(varSession,params={}):
@@ -653,10 +649,6 @@ app.api_add("/save",api_save,verb='POST',daType='json')
 #app.api_add("/standard",form_gestStd,acl=os.getenv('HAPACL_Status',None))
 #app.api_add("/api/std_status",api_std_status,acl=os.getenv('HAPACL_FULL',None))
 #app.api_add("/api/std_status",api_std_status,verb="POST",acl=os.getenv('HAPACL_FULL',None))
-
-if not ensure_pip_installed_requirements():
-    # gérer l'échec (log, raise, retry, ...)
-    pass
 
 
 # Et... C'est partiiiiiiiiiiiiii
