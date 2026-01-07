@@ -80,7 +80,7 @@ install_requirements(
 
 # Ajouter le répertoire au PYTHONPATH pour pouvoir importer les modules
 sys.path.insert(0, "/srv/pip-install")
-sys.path.insert(0, "/srv/zapiz")
+#sys.path.insert(0, "/srv/zapiz")
 
 
 import httpx
@@ -597,6 +597,11 @@ async def api_save(varSession,params={}):
     #print(ret)
     #print(repoGit.branches())
 
+user_csvfile=None
+user_csvfilePath=Path(f"{SLIDES_DIR}/config/userfile.csv")
+if user_csvfilePath.exists() and user_csvfilePath.is_file():
+    user_csvfile=f"{SLIDES_DIR}/config/userfile.csv"
+
 app = Zapiz(
     host=cfg['API_HOST'],
     port=cfg['API_PORT'],
@@ -606,6 +611,7 @@ app = Zapiz(
     docs_url="/docs",               # URL de Swagger
     redoc_url="/redoc",             # URL de Redoc
     openapi_url="/openapi.json",    # Spécification OpenAPI
+    user_csvfile=user_csvfile,
 #    oidc_client_id=cfg['OIDC_CLIENT_ID'],
 #    oidc_client_secret=cfg['OIDC_CLIENT_SECRET'],
 #    oidc_issuer=cfg['OIDC_ISSUER'],
@@ -614,7 +620,6 @@ app = Zapiz(
 #    oidc_redi_url=cfg['OIDC_REDI_URL'],
 #    oidc_jwks_url=cfg['OIDC_JWKS_URL'],
 #    oidc_usin_url=cfg['OIDC_USIN_URL'],
-    user_csvfile=cfg['USER_CSVFILE'],
     sentry=cfg['SENTRY_DSN'],
 #    secret_key=cfg['SECRET_KEY'],
 #    startup=asti.startup
